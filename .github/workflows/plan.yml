@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - 'rstuhlmuller/**'
+      - '.github/workflows/plan.yml'
 
 permissions:
   contents: read
