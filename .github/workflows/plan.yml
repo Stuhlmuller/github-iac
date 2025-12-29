@@ -6,6 +6,8 @@ on:
     types: [opened, synchronize, reopened, edited]
     branches:
       - main
+    paths:
+      - 'rstuhlmuller/**'
 
 permissions:
   contents: read
@@ -57,7 +59,7 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
-      - name: Install Terragrunt and OpenTofu
+      - name: Terragrunt Plan
         uses: gruntwork-io/terragrunt-action@v3
         with:
           tg_dir: ${{ env.working_dir }}
