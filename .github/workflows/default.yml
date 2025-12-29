@@ -1,9 +1,9 @@
 name: "Default Checks"
 
-permissions: 
-  checks: read
-  statuses: read
-  contents: read
+permissions:
+  contents: read # for actions/checkout to fetch code
+  checks: write # for merge gatekeeper to create checks
+  statuses: write # for merge gatekeeper to create statuses
 
 on:
   pull_request:
@@ -14,3 +14,6 @@ on:
 jobs:
   check:
     uses: rstuhlmuller/workflows/.github/workflows/default.yml@main
+    with:
+      checkov: false
+      merge-checks-timeout: 300
