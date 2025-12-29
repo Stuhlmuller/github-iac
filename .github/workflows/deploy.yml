@@ -45,23 +45,9 @@ jobs:
           role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
           role-session-name: github-actions-session
 
-      - name: Tailscale
-        uses: tailscale/github-action@v4
-        with:
-          authkey: ${{ secrets.TS_AUTH_KEY }}
-          tags: tag:ci
-          statedir: /tmp/tailscale-state/
-
-      - name: Setup kubeconfig
-        run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-
       - name: Terragrunt Deploy
         uses: gruntwork-io/terragrunt-action@v3
         with:
           tg_dir: ${{ env.working_dir }}
           tg_command: 'run --all --non-interactive -- apply'
           tg_comment: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
