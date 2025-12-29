@@ -40,7 +40,7 @@ inputs = {
     }
     octobot-deploy = {
       description = "Helm charts for OctoBot"
-      visibility = "public"
+      visibility  = "public"
     }
     openwebui-helm-charts = {
       description = "Helm charts for OpenWebUI with MCPO sidecar"
@@ -62,7 +62,7 @@ inputs = {
       description = "Personal website"
       visibility  = "public"
       ruleset = [{
-        name = "main" 
+        name                = "main"
         required_signatures = false
         bypass_actors = [{
           actor_id    = 5
