@@ -17,6 +17,10 @@ inputs = {
   default_repository_config         = local.org_vars.default_repository_config
   default_repository_ruleset_config = local.org_vars.default_repository_ruleset_config
   github_repositories = {
+    ".github" = {
+      description = "GitHub organization configuration"
+      visibility  = "public"
+    }
     dotfiles = {
       description = "My dotfiles repository"
       visibility  = "public"
