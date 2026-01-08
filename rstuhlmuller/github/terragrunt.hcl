@@ -34,6 +34,11 @@ inputs = {
       description = "Kubernetes homelab deployment"
       visibility  = "public"
     }
+    infra-tracker = {
+      description        = "Vibe coding project for tracking infrastructure changes"
+      visibility         = "public"
+      gitignore_template = "Python"
+    }
     terragrunt-catalog = {
       description = "Terragrunt configuration catalog for terragrunt stacks"
       visibility  = "public"

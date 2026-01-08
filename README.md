@@ -63,6 +63,16 @@ inputs = {
 }
 ```
 
+### Initializing `infra-tracker`
+
+This repo is set up to provision new repositories via Terragrunt. To initialize the **infra-tracker** project repository, ensure it exists in `rstuhlmuller/github/terragrunt.hcl` under `inputs.github_repositories`, then run:
+
+```bash
+cd rstuhlmuller/github
+terragrunt plan
+terragrunt apply
+```
+
 ## Development Environment 🧰
 
 This project includes a devcontainer configuration with all necessary tools pre-installed:
