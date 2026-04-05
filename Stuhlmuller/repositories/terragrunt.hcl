@@ -36,38 +36,6 @@ inputs = {
   organization                      = local.org_vars.organization
   default_repository_config         = local.org_vars.default_repository_config
   default_repository_ruleset_config = local.org_vars.default_repository_ruleset_config
-  repository_ruleset_imports = {
-    ".github.main" = {
-      ruleset_id = 11493159
-    }
-    "ai-pr-reviewer.main" = {
-      ruleset_id = 14700811
-    }
-    "github-iac.main" = {
-      ruleset_id = 5660587
-    }
-    "grafana-iac.main" = {
-      ruleset_id = 8218990
-    }
-    "homelab.main" = {
-      ruleset_id = 14700233
-    }
-    "personal-website.main" = {
-      ruleset_id = 14702864
-    }
-    "policies.main" = {
-      ruleset_id = 9041681
-    }
-    "renovate.main" = {
-      ruleset_id = 14702863
-    }
-    "terragrunt-catalog.main" = {
-      ruleset_id = 7928987
-    }
-    "workflows.main" = {
-      ruleset_id = 14702865
-    }
-  }
   repositories = {
     ".github" = {
       visibility = "public"
