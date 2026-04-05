@@ -19,7 +19,7 @@ locals {
     target                     = "branch"
     enforcement                = "active"
     require_code_owner_reviews = true
-    require_signed_commits     = true
+    require_signed_commits     = false
     conditions                 = [{ include = ["~DEFAULT_BRANCH"], exclude = [] }]
     creation                   = true
     update                     = false
