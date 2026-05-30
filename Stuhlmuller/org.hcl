@@ -31,5 +31,15 @@ locals {
         bypass_mode = "pull_request"
       }
     ]
+    required_status_checks = [
+      {
+        required_check = [
+          {
+            context        = "policy-bot: main"
+            integration_id = 3280987
+          }
+        ]
+      }
+    ]
   }
 }
