@@ -1,0 +1,12 @@
+# the high level policy
+policy:
+  approval:
+    - pr approved
+  disapproval:
+    requires:
+      organizations:
+        - "Stuhlmuller"
+
+# the list of rules
+approval_rules:
+  - name: pr approved
