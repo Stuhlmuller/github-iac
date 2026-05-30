@@ -1,6 +1,5 @@
 locals {
-  org_vars     = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
-  github_token = trimspace(get_env("GITHUB_TOKEN", get_env("GH_TOKEN", "")))
+  org_vars = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
   public_repository_config = {
     visibility                = "public"
     delete_branch_on_merge    = true
@@ -26,8 +25,17 @@ generate "provider" {
   path      = "github-provider.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<-EOF
+  provider "aws" {
+    region = "us-east-1"
+  }
+
+  data "aws_ssm_parameter" "personal_access_token" {
+    name = "/github-iac/personal_access_token"
+  }
+
   provider "github" {
     owner = "${local.org_vars.organization}"
+    token = data.aws_ssm_parameter.personal_access_token.value
   }
   EOF
 }
