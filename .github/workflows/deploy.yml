@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - 'rstuhlmuller/**'
+      - 'Stuhlmuller/**'
       - '.github/workflows/deploy.yml'
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
   id-token: write
 
 env:
-  working_dir: rstuhlmuller
+  working_dir: Stuhlmuller
 
 jobs:
   checks:
