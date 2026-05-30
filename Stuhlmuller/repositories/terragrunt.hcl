@@ -36,6 +36,7 @@ inputs = {
   organization                      = local.org_vars.organization
   default_repository_config         = local.org_vars.default_repository_config
   default_repository_ruleset_config = local.org_vars.default_repository_ruleset_config
+  organization_rulesets             = local.org_vars.organization_rulesets
   repositories = {
     ".github" = {
       visibility = "public"

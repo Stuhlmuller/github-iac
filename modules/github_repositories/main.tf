@@ -217,6 +217,67 @@ resource "github_repository_ruleset" "this" {
   depends_on = [github_repository.this]
 }
 
+resource "github_organization_ruleset" "this" {
+  for_each = {
+    for ruleset in var.organization_rulesets :
+    ruleset.name => ruleset
+  }
+
+  name        = each.value.name
+  target      = try(each.value.target, "branch")
+  enforcement = try(each.value.enforcement, "active")
+
+  dynamic "conditions" {
+    for_each = try(each.value.conditions, [])
+    content {
+      repository_id = try(conditions.value.repository_id, null)
+
+      dynamic "ref_name" {
+        for_each = try(conditions.value.ref_name, null) == null ? [] : [conditions.value.ref_name]
+        content {
+          include = try(ref_name.value.include, [])
+          exclude = try(ref_name.value.exclude, [])
+        }
+      }
+
+      dynamic "repository_name" {
+        for_each = try(conditions.value.repository_name, null) == null ? [] : [conditions.value.repository_name]
+        content {
+          include = try(repository_name.value.include, [])
+          exclude = try(repository_name.value.exclude, [])
+        }
+      }
+    }
+  }
+
+  dynamic "bypass_actors" {
+    for_each = try(each.value.bypass_actors, [])
+    content {
+      actor_id    = bypass_actors.value.actor_id
+      actor_type  = bypass_actors.value.actor_type
+      bypass_mode = bypass_actors.value.bypass_mode
+    }
+  }
+
+  rules {
+    dynamic "required_status_checks" {
+      for_each = try(each.value.required_status_checks, [])
+      content {
+        strict_required_status_checks_policy = try(required_status_checks.value.strict_required_status_checks_policy, null)
+        do_not_enforce_on_create             = try(required_status_checks.value.do_not_enforce_on_create, null)
+
+        dynamic "required_check" {
+          for_each = try(required_status_checks.value.required_check, [])
+          content {
+            context        = required_check.value.context
+            integration_id = try(required_check.value.integration_id, null)
+          }
+        }
+      }
+    }
+  }
+}
+
 import {
   for_each = local.imported_repository_rulesets
   to       = github_repository_ruleset.this[each.key]

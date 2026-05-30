@@ -31,15 +31,34 @@ locals {
         bypass_mode = "pull_request"
       }
     ]
-    required_status_checks = [
-      {
-        required_check = [
-          {
-            context        = "policy-bot: main"
-            integration_id = 3280987
-          }
-        ]
-      }
-    ]
   }
+  organization_rulesets = [
+    {
+      name        = "policy-bot"
+      target      = "branch"
+      enforcement = "active"
+      conditions = [
+        {
+          ref_name = {
+            include = ["~DEFAULT_BRANCH"]
+            exclude = []
+          }
+          repository_name = {
+            include = ["~ALL"]
+            exclude = []
+          }
+        }
+      ]
+      required_status_checks = [
+        {
+          required_check = [
+            {
+              context        = "policy-bot: main"
+              integration_id = 3280987
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }
