@@ -86,6 +86,12 @@ variable "default_repository_ruleset_config" {
   default     = {}
 }
 
+variable "organization_rulesets" {
+  type        = list(any)
+  description = "Organization-level rulesets to create."
+  default     = []
+}
+
 variable "repository_ruleset_imports" {
   description = "Repository rulesets to import, keyed by the Terraform ruleset key (<repository>.<ruleset_name>)."
   type = map(object({
