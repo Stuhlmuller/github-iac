@@ -47,10 +47,17 @@ jobs:
           role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
           role-session-name: github-actions-session
 
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Terragrunt Plan
         uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
         with:
           tg_dir: ${{ env.working_dir }}
           tg_command: 'run --all --non-interactive --summary-per-unit --log-format bare -- plan'
           tg_comment: 1
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
