@@ -2,17 +2,18 @@
 
 This module reconciles GitHub repositories for an organization from a single list of repository configurations plus an organization-wide default configuration.
 
-It does three things:
+It does five things:
 
 1. Reads all repositories in the organization with `data.github_repositories`.
 2. Merges explicit `repositories` entries with `default_repository_config`.
 3. Imports discovered repositories into OpenTofu state and manages them with the merged configuration.
 4. Applies per-repository rulesets derived from `default_repository_ruleset_config` and each repository's `ruleset` list.
+5. Applies organization-level rulesets from `organization_rulesets`.
 
 ## Requirements
 
 - OpenTofu with support for iterable `import` blocks.
-- `integrations/github` provider `6.6.x`.
+- `integrations/github` provider `6.12.x`.
 
 ## Inputs
 
@@ -20,6 +21,7 @@ It does three things:
 - `repositories`: Map of repository-specific overrides keyed by repository name.
 - `default_repository_config`: Baseline settings used for all repositories and applied automatically to discovered repositories that are not explicitly configured.
 - `default_repository_ruleset_config`: Baseline ruleset settings merged into every ruleset entry.
+- `organization_rulesets`: Organization-level rulesets to apply, including repository-property targeting for dynamic scopes such as public repositories.
 - `results_per_page`: Page size for the GitHub repository search data source.
 
 ## Example

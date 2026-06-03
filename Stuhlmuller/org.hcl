@@ -43,8 +43,14 @@ locals {
             include = ["~DEFAULT_BRANCH"]
             exclude = []
           }
-          repository_name = {
-            include = ["~ALL"]
+          repository_property = {
+            include = [
+              {
+                name            = "visibility"
+                property_values = ["public"]
+                source          = "system"
+              }
+            ]
             exclude = []
           }
         }

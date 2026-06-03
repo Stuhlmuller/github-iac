@@ -247,6 +247,14 @@ resource "github_organization_ruleset" "this" {
           exclude = try(repository_name.value.exclude, [])
         }
       }
+
+      dynamic "repository_property" {
+        for_each = try(conditions.value.repository_property, null) == null ? [] : [conditions.value.repository_property]
+        content {
+          include = try(repository_property.value.include, [])
+          exclude = try(repository_property.value.exclude, [])
+        }
+      }
     }
   }
 
