@@ -60,4 +60,4 @@ jobs:
           tg_dir: ${{ env.working_dir }}
           tg_command: 'run --all --non-interactive --summary-per-unit --log-format bare -- plan'
           tg_comment: 1
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}

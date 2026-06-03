@@ -58,3 +58,4 @@ jobs:
           tg_dir: ${{ env.working_dir }}
           tg_command: 'run --all --non-interactive -- apply'
           tg_comment: true
+          github_token: ${{ steps.app-token.outputs.token }}
