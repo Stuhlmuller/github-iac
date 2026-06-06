@@ -56,9 +56,6 @@ jobs:
 
       - name: Terragrunt Plan
         uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
           tg_dir: ${{ env.working_dir }}
           tg_command: 'run --all --non-interactive --summary-per-unit --log-format bare -- plan'
