@@ -192,8 +192,9 @@ resource "github_repository_ruleset" "this" {
     dynamic "pull_request" {
       for_each = try(each.value.pull_requests, [])
       content {
-        required_approving_review_count = try(pull_request.value.required_approving_review_count, null)
-        require_code_owner_review       = try(pull_request.value.require_code_owner_reviews, each.value.require_code_owner_reviews)
+        required_approving_review_count   = try(pull_request.value.required_approving_review_count, null)
+        require_code_owner_review         = try(pull_request.value.require_code_owner_reviews, each.value.require_code_owner_reviews)
+        required_review_thread_resolution = try(pull_request.value.required_review_thread_resolution, null)
       }
     }
 
