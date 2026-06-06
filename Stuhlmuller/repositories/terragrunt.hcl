@@ -67,6 +67,10 @@ inputs = {
                 {
                   context        = "Lint"
                   integration_id = 15368
+                },
+                {
+                  context        = "policy-bot: main"
+                  integration_id = 3280987
                 }
               ]
             }
