@@ -59,6 +59,9 @@ inputs = {
     "homelab" = {
       visibility = "public"
     }
+    "hivemind" = {
+      visibility = "public"
+    }
     "octobot-deploy" = {
       archived = true
     }
