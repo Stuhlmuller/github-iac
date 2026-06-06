@@ -24,6 +24,16 @@ locals {
     creation                   = true
     update                     = false
     deletion                   = true
+    required_status_checks = [
+      {
+        required_check = [
+          {
+            context        = "policy-bot: main"
+            integration_id = 3280987
+          }
+        ]
+      }
+    ]
     bypass_actors = [
       {
         actor_id    = 2145192
@@ -32,39 +42,5 @@ locals {
       }
     ]
   }
-  organization_rulesets = [
-    {
-      name        = "policy-bot"
-      target      = "branch"
-      enforcement = "active"
-      conditions = [
-        {
-          ref_name = {
-            include = ["~DEFAULT_BRANCH"]
-            exclude = []
-          }
-          repository_property = {
-            include = [
-              {
-                name            = "visibility"
-                property_values = ["public"]
-                source          = "system"
-              }
-            ]
-            exclude = []
-          }
-        }
-      ]
-      required_status_checks = [
-        {
-          required_check = [
-            {
-              context        = "policy-bot: main"
-              integration_id = 3280987
-            }
-          ]
-        }
-      ]
-    }
-  ]
+  organization_rulesets = []
 }

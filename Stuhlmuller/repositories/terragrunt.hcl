@@ -74,6 +74,9 @@ inputs = {
         }
       ]
     }
+    "hivemind" = {
+      visibility = "public"
+    }
     "octobot-deploy" = {
       archived = true
     }
