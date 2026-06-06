@@ -58,6 +58,21 @@ inputs = {
     }
     "homelab" = {
       visibility = "public"
+      ruleset = [
+        {
+          name = "main"
+          required_status_checks = [
+            {
+              required_check = [
+                {
+                  context        = "Lint"
+                  integration_id = 15368
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
     "octobot-deploy" = {
       archived = true
