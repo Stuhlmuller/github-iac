@@ -60,7 +60,13 @@ inputs = {
       visibility = "public"
       ruleset = [
         {
-          name = "main"
+          name                   = "main"
+          require_signed_commits = true
+          pull_requests = [
+            {
+              required_review_thread_resolution = true
+            }
+          ]
           required_status_checks = [
             {
               required_check = [
