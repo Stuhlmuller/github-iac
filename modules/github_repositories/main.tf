@@ -72,13 +72,37 @@ locals {
     ] if repository_config.visibility != "private"
   ])
 
-  imported_repository_rulesets = {
+  repository_rulesets_by_key = {
     for ruleset in local.repository_rulesets :
-    "${ruleset.repository}.${ruleset.name}" => {
+    "${ruleset.repository}.${ruleset.name}" => ruleset
+    if !try(ruleset.archived_repository, false)
+  }
+
+  repository_environments = {
+    for environment in flatten([
+      for repository_name, repository_config in local.effective_repositories : [
+        for environment in try(repository_config.environments, []) :
+        merge(environment, { repository = repository_name })
+      ]
+    ]) : "${environment.repository}.${environment.name}" => environment
+  }
+
+  imported_repository_rulesets = {
+    for key, ruleset in local.repository_rulesets_by_key :
+    key => {
       repository = ruleset.repository
-      ruleset_id = var.repository_ruleset_imports["${ruleset.repository}.${ruleset.name}"].ruleset_id
+      ruleset_id = var.repository_ruleset_imports[key].ruleset_id
     }
-    if try(ruleset.archived_repository, false) == false && try(var.repository_ruleset_imports["${ruleset.repository}.${ruleset.name}"], null) != null
+    if key != "homelab.main" && try(var.repository_ruleset_imports[key], null) != null
+  }
+
+  imported_existing_repository_rulesets = {
+    for key, ruleset in local.repository_rulesets_by_key :
+    key => {
+      repository = ruleset.repository
+      ruleset_id = var.repository_ruleset_imports[key].ruleset_id
+    }
+    if key == "homelab.main" && try(var.repository_ruleset_imports[key], null) != null
   }
 
   imported_branch_defaults = {
@@ -146,9 +170,8 @@ resource "github_repository" "this" {
 
 resource "github_repository_ruleset" "this" {
   for_each = {
-    for ruleset in local.repository_rulesets :
-    "${ruleset.repository}.${ruleset.name}" => ruleset
-    if try(ruleset.archived_repository, false) == false
+    for key, ruleset in local.repository_rulesets_by_key : key => ruleset
+    if key != "homelab.main"
   }
 
   name        = each.value.name
@@ -169,7 +192,7 @@ resource "github_repository_ruleset" "this" {
   dynamic "bypass_actors" {
     for_each = try(each.value.bypass_actors, [])
     content {
-      actor_id    = bypass_actors.value.actor_id
+      actor_id    = try(bypass_actors.value.actor_id, null)
       actor_type  = bypass_actors.value.actor_type
       bypass_mode = bypass_actors.value.bypass_mode
     }
@@ -179,6 +202,7 @@ resource "github_repository_ruleset" "this" {
     creation                = try(each.value.creation, false)
     update                  = try(each.value.update, false)
     deletion                = try(each.value.deletion, false)
+    non_fast_forward        = try(each.value.non_fast_forward, false)
     required_linear_history = try(each.value.required_linear_history, false)
     required_signatures     = try(each.value.require_signed_commits, false)
 
@@ -192,6 +216,7 @@ resource "github_repository_ruleset" "this" {
     dynamic "pull_request" {
       for_each = try(each.value.pull_requests, [])
       content {
+        allowed_merge_methods           = try(pull_request.value.allowed_merge_methods, null)
         required_approving_review_count = try(pull_request.value.required_approving_review_count, null)
         require_code_owner_review       = try(pull_request.value.require_code_owner_reviews, each.value.require_code_owner_reviews)
       }
@@ -215,6 +240,110 @@ resource "github_repository_ruleset" "this" {
   }
 
   depends_on = [github_repository.this]
+}
+
+# The homelab ruleset is intentionally independent from the repository resource
+# collection so its protected workflow cannot plan unrelated repository drift.
+resource "github_repository_ruleset" "existing" {
+  for_each = {
+    for key, ruleset in local.repository_rulesets_by_key : key => ruleset
+    if key == "homelab.main"
+  }
+
+  name        = each.value.name
+  repository  = each.value.repository
+  target      = each.value.target
+  enforcement = each.value.enforcement
+
+  dynamic "conditions" {
+    for_each = try(each.value.conditions, [])
+    content {
+      ref_name {
+        include = try(conditions.value.include, [])
+        exclude = try(conditions.value.exclude, [])
+      }
+    }
+  }
+
+  dynamic "bypass_actors" {
+    for_each = try(each.value.bypass_actors, [])
+    content {
+      actor_id    = try(bypass_actors.value.actor_id, null)
+      actor_type  = bypass_actors.value.actor_type
+      bypass_mode = bypass_actors.value.bypass_mode
+    }
+  }
+
+  rules {
+    creation                = try(each.value.creation, false)
+    update                  = try(each.value.update, false)
+    deletion                = try(each.value.deletion, false)
+    non_fast_forward        = try(each.value.non_fast_forward, false)
+    required_linear_history = try(each.value.required_linear_history, false)
+    required_signatures     = try(each.value.require_signed_commits, false)
+
+    dynamic "required_deployments" {
+      for_each = try(each.value.required_deployments, [])
+      content {
+        required_deployment_environments = required_deployments.value.required_deployment_environments
+      }
+    }
+
+    dynamic "pull_request" {
+      for_each = try(each.value.pull_requests, [])
+      content {
+        allowed_merge_methods           = try(pull_request.value.allowed_merge_methods, null)
+        required_approving_review_count = try(pull_request.value.required_approving_review_count, null)
+        require_code_owner_review       = try(pull_request.value.require_code_owner_reviews, each.value.require_code_owner_reviews)
+      }
+    }
+
+    dynamic "required_status_checks" {
+      for_each = try(each.value.required_status_checks, [])
+      content {
+        strict_required_status_checks_policy = try(required_status_checks.value.strict_required_status_checks_policy, null)
+        do_not_enforce_on_create             = try(required_status_checks.value.do_not_enforce_on_create, null)
+
+        dynamic "required_check" {
+          for_each = try(required_status_checks.value.required_check, [])
+          content {
+            context        = required_check.value.context
+            integration_id = try(required_check.value.integration_id, null)
+          }
+        }
+      }
+    }
+  }
+}
+
+moved {
+  from = github_repository_ruleset.this["homelab.main"]
+  to   = github_repository_ruleset.existing["homelab.main"]
+}
+
+resource "github_repository_environment" "this" {
+  for_each = local.repository_environments
+
+  repository          = each.value.repository
+  environment         = each.value.name
+  can_admins_bypass   = try(each.value.can_admins_bypass, false)
+  prevent_self_review = try(each.value.prevent_self_review, false)
+
+  dynamic "reviewers" {
+    for_each = try(each.value.reviewers, null) == null ? [] : [each.value.reviewers]
+    content {
+      users = try(reviewers.value.users, [])
+      teams = try(reviewers.value.teams, [])
+    }
+  }
+
+  dynamic "deployment_branch_policy" {
+    for_each = try(each.value.deployment_branch_policy, null) == null ? [] : [each.value.deployment_branch_policy]
+    content {
+      protected_branches     = deployment_branch_policy.value.protected_branches
+      custom_branch_policies = deployment_branch_policy.value.custom_branch_policies
+    }
+  }
 }
 
 resource "github_organization_ruleset" "this" {
@@ -289,6 +418,12 @@ resource "github_organization_ruleset" "this" {
 import {
   for_each = local.imported_repository_rulesets
   to       = github_repository_ruleset.this[each.key]
+  id       = format("%s:%d", each.value.repository, each.value.ruleset_id)
+}
+
+import {
+  for_each = local.imported_existing_repository_rulesets
+  to       = github_repository_ruleset.existing[each.key]
   id       = format("%s:%d", each.value.repository, each.value.ruleset_id)
 }
 

@@ -51,6 +51,7 @@ variable "default_repository_config" {
     archived                    = optional(bool, false)
     auto_init                   = optional(bool, true)
     vulnerability_alerts        = optional(bool)
+    environments                = optional(list(any), [])
   })
   default = {}
 }

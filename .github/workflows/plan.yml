@@ -1,63 +1,39 @@
-name: "Terragrunt Plan"
+name: "Terragrunt Check"
 
 on:
-  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, edited]
     branches:
       - main
     paths:
       - 'Stuhlmuller/**'
+      - 'modules/github_repositories/**'
+      - 'common.yml'
+      - 'mise.toml'
+      - 'root.hcl'
       - '.github/workflows/plan.yml'
+      - '.github/workflows/deploy.yml'
 
 permissions:
   contents: read
-  id-token: write
-  pull-requests: write
-
-env:
-  working_dir: Stuhlmuller
 
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout'
+      - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          persist-credentials: false
 
-      - name: Check terragrunt HCL
+      - name: Check Terragrunt HCL
         uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
         with:
-          tg_dir: ${{ env.working_dir }}
+          tg_dir: Stuhlmuller
           tg_command: 'hcl fmt --check --diff'
 
-  plan:
-    runs-on: ubuntu-latest
-    needs: [ checks ]
-    concurrency:
-      group: terragrunt
-    steps:
-      - name: 'Checkout'
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
-        with:
-          aws-region: us-west-2
-          role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
-          role-session-name: github-actions-session
-
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        id: app-token
-        with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Terragrunt Plan
-        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
-        with:
-          tg_dir: ${{ env.working_dir }}
-          tg_command: 'run --all --non-interactive --summary-per-unit --log-format bare -- plan'
-          tg_comment: 1
-          github_token: ${{ steps.app-token.outputs.token }}
+      - name: Check OpenTofu module
+        run: |
+          tofu fmt -check -recursive
+          tofu -chdir=modules/github_repositories init -backend=false -input=false
+          tofu -chdir=modules/github_repositories validate

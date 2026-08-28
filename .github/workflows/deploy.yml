@@ -2,63 +2,318 @@ name: "Terragrunt Deploy"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'Stuhlmuller/**'
-      - '.github/workflows/deploy.yml'
+    inputs:
+      expected_sha:
+        description: Exact commit SHA currently at main
+        required: true
+        type: string
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: github-iac-deploy
+  cancel-in-progress: false
 
 env:
-  working_dir: Stuhlmuller
+  EXPECTED_SHA: ${{ inputs.expected_sha }}
+  PLAN_BUCKET: rstuhlmuller-aws-s3-use1-datalake
+  WORKING_DIR: Stuhlmuller/repositories
 
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout'
+      - name: Checkout exact commit
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Check terragrunt HCL
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Check Terragrunt HCL
         uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
         with:
-          tg_dir: ${{ env.working_dir }}
+          tg_dir: Stuhlmuller
           tg_command: 'hcl fmt --check --diff'
 
-  deploy:
+  plan:
     runs-on: ubuntu-latest
-    needs: [ checks ]
-    concurrency:
-      group: terragrunt
+    needs: checks
+    environment: github-iac-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      plan_key: ${{ steps.store.outputs.plan_key }}
+      plan_sha256: ${{ steps.store.outputs.plan_sha256 }}
     steps:
-      - name: 'Checkout'
+      - name: Checkout exact commit
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Configure AWS Credentials
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Install pinned tools
+        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
         with:
-          aws-region: us-west-2
+          aws-region: us-east-1
           role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
-          role-session-name: github-actions-session
+          role-session-name: github-iac-plan
 
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+      - name: Isolate homelab ruleset state
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          set -euo pipefail
+          old='github_repository_ruleset.this["homelab.main"]'
+          new='github_repository_ruleset.existing["homelab.main"]'
+          if terragrunt --log-disable state show -no-color "$new" > ruleset-state.txt 2>/dev/null; then
+            if terragrunt --log-disable state show "$old" >/dev/null 2>&1; then
+              echo "error: both homelab ruleset state addresses exist" >&2
+              exit 1
+            fi
+            grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"?14700233"?$' ruleset-state.txt
+          else
+            terragrunt --log-disable state show -no-color "$old" > ruleset-state.txt
+            grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"?14700233"?$' ruleset-state.txt
+            terragrunt --log-disable state mv -dry-run "$old" "$new"
+            terragrunt --log-disable state mv -lock-timeout=5m "$old" "$new"
+            if terragrunt --log-disable state show "$old" >/dev/null 2>&1; then
+              echo "error: old homelab ruleset state address still exists" >&2
+              exit 1
+            fi
+            terragrunt --log-disable state show -no-color "$new" > ruleset-state.txt
+            grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"?14700233"?$' ruleset-state.txt
+          fi
+
+      - name: Create read-only GitHub App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         id: app-token
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: homelab
+          permission-administration: read
 
-      - name: Terragrunt Deploy
-        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
+      - name: Plan only the protected GitHub resources
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TG_NON_INTERACTIVE: true
+          TF_IN_AUTOMATION: 1
+          PLAN_FILE: ${{ runner.temp }}/homelab-main.tfplan
+        run: |
+          terragrunt plan -input=false \
+            -out="$PLAN_FILE" \
+            -target='github_repository_ruleset.existing["homelab.main"]'
+
+      - name: Verify saved plan scope
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          PLAN_FILE: ${{ runner.temp }}/homelab-main.tfplan
+        run: |
+          set -euo pipefail
+          terragrunt show -json "$PLAN_FILE" > plan.json
+          jq -e '
+            [.resource_changes[] | select(.mode == "managed")] as $changes
+            | ($changes | length == 1)
+            and all($changes[];
+              if .address == "github_repository_ruleset.existing[\"homelab.main\"]" then
+                (.change.actions == ["no-op"] or .change.actions == ["update"])
+                and ((.change.before.id | tostring) == "14700233")
+                and ((.change.importing // null) == null)
+                and ((.previous_address // null) == null)
+              else false
+              end)
+            and any($changes[]; .address == "github_repository_ruleset.existing[\"homelab.main\"]")
+          ' plan.json
+          terragrunt show -no-color "$PLAN_FILE"
+
+      - name: Store encrypted saved plan
+        id: store
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          PLAN_FILE: ${{ runner.temp }}/homelab-main.tfplan
+        run: |
+          set -euo pipefail
+          plan_key="IaC/github-iac/saved-plans/$EXPECTED_SHA/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/plan.out"
+          plan_sha256="$(sha256sum "$PLAN_FILE" | awk '{print $1}')"
+          aws s3 cp "$PLAN_FILE" "s3://$PLAN_BUCKET/$plan_key" \
+            --only-show-errors \
+            --sse aws:kms \
+            --sse-kms-key-id alias/homelab-opentofu \
+            --metadata "commit=$EXPECTED_SHA,run-id=$GITHUB_RUN_ID,sha256=$plan_sha256"
+          echo "plan_key=$plan_key" >> "$GITHUB_OUTPUT"
+          echo "plan_sha256=$plan_sha256" >> "$GITHUB_OUTPUT"
+
+  apply:
+    runs-on: ubuntu-latest
+    needs: plan
+    environment: github-iac-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PLAN_KEY: ${{ needs.plan.outputs.plan_key }}
+      PLAN_SHA256: ${{ needs.plan.outputs.plan_sha256 }}
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
-          tg_dir: ${{ env.working_dir }}
-          tg_command: 'run --all --non-interactive -- apply'
-          tg_comment: true
-          github_token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Install pinned tools
+        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
+          role-session-name: github-iac-apply
+
+      - name: Download and verify exact saved plan
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          PLAN_FILE: ${{ runner.temp }}/homelab-main.tfplan
+        run: |
+          set -euo pipefail
+          expected_key="IaC/github-iac/saved-plans/$EXPECTED_SHA/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/plan.out"
+          test "$PLAN_KEY" = "$expected_key"
+          [[ "$PLAN_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          aws s3api head-object --bucket "$PLAN_BUCKET" --key "$PLAN_KEY" > plan-head.json
+          jq -e --arg commit "$EXPECTED_SHA" --arg sha256 "$PLAN_SHA256" '
+            .ServerSideEncryption == "aws:kms"
+            and .Metadata.commit == $commit
+            and .Metadata.sha256 == $sha256
+          ' plan-head.json
+          aws s3 cp "s3://$PLAN_BUCKET/$PLAN_KEY" "$PLAN_FILE" --only-show-errors
+          echo "$PLAN_SHA256  $PLAN_FILE" | sha256sum --check -
+          aws s3 rm "s3://$PLAN_BUCKET/$PLAN_KEY" --only-show-errors
+
+      - name: Create scoped GitHub App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homelab
+          permission-administration: write
+
+      - name: Apply exact saved plan
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TG_NON_INTERACTIVE: true
+          TF_IN_AUTOMATION: 1
+          PLAN_FILE: ${{ runner.temp }}/homelab-main.tfplan
+        run: |
+          set -euo pipefail
+          git -C "$GITHUB_WORKSPACE" fetch --no-tags --depth=1 origin main
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          terragrunt apply "$PLAN_FILE"
+
+      - name: Verify live ruleset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Stuhlmuller/homelab/rulesets/14700233 > ruleset.json
+          jq -e '
+            .id == 14700233
+            and .name == "main"
+            and .target == "branch"
+            and .enforcement == "active"
+            and .conditions == {"ref_name": {"exclude": [], "include": ["~DEFAULT_BRANCH"]}}
+            and ([.bypass_actors[] | {actor_id, actor_type, bypass_mode}] == [
+              {"actor_id": null, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"},
+              {"actor_id": 2145192, "actor_type": "Integration", "bypass_mode": "pull_request"}
+            ])
+            and ([.rules[].type] | sort == [
+              "creation", "deletion", "non_fast_forward", "pull_request",
+              "required_linear_history", "required_signatures", "required_status_checks"
+            ])
+            and ([.rules[] | select(.type == "required_status_checks")
+              | .parameters.required_status_checks[] | {key: .context, value: .integration_id}] | from_entries == {
+                "policy-bot: main": 3280987,
+                "Lint": 15368,
+                "repo": 15368,
+                "Analyze (python)": 15368,
+                "analyze-actions": 15368,
+                "release-dry-run": 15368,
+                "Terragrunt Gate": 15368
+              })
+            and ([.rules[] | select(.type == "required_status_checks") | .parameters
+              | {strict_required_status_checks_policy, do_not_enforce_on_create}] == [{
+                "strict_required_status_checks_policy": true,
+                "do_not_enforce_on_create": false
+              }])
+            and ([.rules[] | select(.type == "pull_request")
+              | .parameters | {
+                required_approving_review_count,
+                dismiss_stale_reviews_on_push,
+                required_reviewers,
+                require_code_owner_review,
+                dismissal_restriction,
+                require_last_push_approval,
+                required_review_thread_resolution,
+                require_extra_approval_for_unattributed_changes,
+                allowed_merge_methods
+              }] == [{
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": false,
+                "required_reviewers": [],
+                "require_code_owner_review": false,
+                "dismissal_restriction": {"enabled": false, "allowed_actors": []},
+                "require_last_push_approval": false,
+                "required_review_thread_resolution": false,
+                "require_extra_approval_for_unattributed_changes": false,
+                "allowed_merge_methods": ["squash"]
+              }])
+          ' ruleset.json

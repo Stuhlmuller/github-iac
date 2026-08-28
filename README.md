@@ -1,67 +1,24 @@
-# GitHub Infrastructure as Code 🚀
+# GitHub Infrastructure as Code
 
-A Terraform and Terragrunt powered solution for managing GitHub repositories as code!
+OpenTofu modules and Terragrunt configuration for the `Stuhlmuller` GitHub organization.
 
-## What is this? 🤔
+## Layout
 
-This project uses Infrastructure as Code (IaC) principles to automate the creation and management of GitHub repositories. Instead of clicking around in the GitHub UI, you define your repositories in code and let automation do the rest!
+- `Stuhlmuller/`: organization configuration and the deployable Terragrunt unit.
+- `modules/github_repositories/`: repositories, rulesets, default branches, and protected Actions environments.
+- `root.hcl`: encrypted S3 state backend configuration.
 
-## Features ✨
+## Development
 
-- **Repository Management**: Create, configure, and manage GitHub repositories
-- **Branch Protection**: Define branch protection rules and rulesets
-- **Organization Settings**: Manage organization-wide defaults
-- **Secure Credentials**: Uses AWS SSM Parameter Store for secure token management
+Tool versions are pinned in `mise.toml`.
 
-## Getting Started 🚀
-
-### Prerequisites
-
-- [Terraform](https://www.terraform.io/) (v1.0+)
-- [Terragrunt](https://terragrunt.gruntwork.io/) (latest)
-- AWS CLI configured with appropriate permissions
-- GitHub Personal Access Token (stored in AWS SSM Parameter Store)
-
-### Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/rstuhlmuller/github-iac.git
-   cd github-iac
-   ```
-
-2. Store your GitHub Personal Access Token in AWS SSM Parameter Store:
-   ```bash
-   aws ssm put-parameter --name "/github-iac/personal_access_token" --value "your-github-token" --type SecureString
-   ```
-
-3. Navigate to your organization directory and run:
-   ```bash
-   cd rstuhlmuller/github
-   terragrunt plan
-   terragrunt apply
-   ```
-
-## Project Structure 📂
-
-- `modules/`: Terraform modules for GitHub resources
-- `rstuhlmuller/`: Organization-specific configurations
-- `common/`: Shared providers and configurations
-
-## Adding New Repositories 🏗️
-
-To add a new repository, update the `github_repositories` input in your organization's `terragrunt.hcl` file:
-
-```hcl
-inputs = {
-  github_repositories = {
-    my-new-repo = {
-      description = "My awesome new repository"
-      visibility = "public"
-    }
-  }
-}
+```bash
+terragrunt hcl fmt --check --diff
+tofu fmt -check -recursive
 ```
+
+Pull requests run static checks only. Pull-request code receives no AWS
+credentials, GitHub App private key, or organization-write token.
 
 ## Repository security configurations
 
@@ -92,24 +49,150 @@ protection:
 bash Stuhlmuller/security-configurations/reconcile-homelab.sh --rollback
 ```
 
-## Development Environment 🧰
+## Protected deployment
 
-This project includes a devcontainer configuration with all necessary tools pre-installed:
+The `Terragrunt Deploy` workflow accepts only the exact 40-character commit SHA currently at `main`.
 
-- Terraform
-- Terragrunt
-- AWS CLI
-- GitHub CLI
-- VS Code extensions for HashiCorp configuration languages
+1. Dispatch `.github/workflows/deploy.yml` on `main` with `expected_sha` set to the reviewed commit.
+2. Approve `github-iac-plan`.
+3. Review the authenticated, scope-checked plan.
+4. Approve `github-iac-production` to apply that exact saved plan.
 
-## License 📜
+```bash
+gh workflow run deploy.yml --repo Stuhlmuller/github-iac --ref main \
+  -f expected_sha=<40-character-main-sha>
+```
 
-MIT License - See [LICENSE](LICENSE) for details.
+The workflow targets only the isolated homelab ruleset. It stores the binary plan encrypted in the private state bucket, verifies its SHA-256 digest before apply, rejects a stale `main`, verifies live state after apply, and deletes the saved plan immediately after its verified download. A rejected or cancelled run intentionally retains its plan for investigation; delete that run's exact S3 object after review.
 
-## Contributions 👥
+Required GitHub configuration:
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+- `APP_CLIENT_ID` repository variable for the `stuhlmuller-github-iac` App.
+- `APP_PRIVATE_KEY` environment secret in both `github-iac-plan` and `github-iac-production`; do not store it as a repository secret.
+- GitHub App repository permission: Administration write, scoped by the workflow to `homelab`.
+- Reviewer `rstuhlmuller` on both environments. Administrator bypass is disabled and deployments are restricted to protected branches.
 
----
+Bootstrap both protected environments and rotate the App private key into environment-level secrets before merging this workflow:
 
-Happy automating! 🤖
+```bash
+set -euo pipefail
+private_key_path=/secure/path/github-app-private-key.pem
+test -s "$private_key_path"
+openssl pkey -check -noout -in "$private_key_path"
+
+for environment in github-iac-plan github-iac-production; do
+  gh secret set APP_PRIVATE_KEY --repo Stuhlmuller/github-iac \
+    --env "$environment" < "$private_key_path"
+  test "$(gh secret list --repo Stuhlmuller/github-iac --env "$environment" \
+    --json name --jq 'any(.[]; .name == "APP_PRIVATE_KEY")')" = true
+done
+
+repository_has_key="$(gh secret list --repo Stuhlmuller/github-iac \
+  --json name --jq 'any(.[]; .name == "APP_PRIVATE_KEY")')"
+if [ "$repository_has_key" = true ]; then
+  gh secret delete APP_PRIVATE_KEY --repo Stuhlmuller/github-iac
+fi
+test "$(gh secret list --repo Stuhlmuller/github-iac \
+  --json name --jq 'any(.[]; .name == "APP_PRIVATE_KEY")')" = false
+```
+
+After this change reaches `main`, adopt the bootstrapped environments into the
+declared remote state with administrator AWS and GitHub credentials. Import
+only an address that is absent, then review and apply the exact environment-only
+plan:
+
+```bash
+set -euo pipefail
+export AWS_PROFILE="<administrator-profile>"
+export GITHUB_TOKEN="$(gh auth token)"
+cd Stuhlmuller/repositories
+terragrunt --log-disable init -reconfigure
+
+if ! terragrunt --log-disable state show \
+  'github_repository_environment.this["github-iac.github-iac-plan"]' >/dev/null 2>&1; then
+  terragrunt --log-disable import \
+    'github_repository_environment.this["github-iac.github-iac-plan"]' \
+    github-iac:github-iac-plan
+fi
+if ! terragrunt --log-disable state show \
+  'github_repository_environment.this["github-iac.github-iac-production"]' >/dev/null 2>&1; then
+  terragrunt --log-disable import \
+    'github_repository_environment.this["github-iac.github-iac-production"]' \
+    github-iac:github-iac-production
+fi
+
+environment_plan_dir="$(mktemp -d "${TMPDIR:-/tmp}/github-iac-environments.XXXXXX")"
+environment_plan="$environment_plan_dir/plan.out"
+environment_plan_json="$environment_plan_dir/plan.json"
+trap 'test ! -d "$environment_plan_dir" || rm -rf -- "$environment_plan_dir"' EXIT
+terragrunt --log-disable plan -input=false \
+  -target='github_repository_environment.this["github-iac.github-iac-plan"]' \
+  -target='github_repository_environment.this["github-iac.github-iac-production"]' \
+  -out="$environment_plan"
+terragrunt --log-disable show -json "$environment_plan" > "$environment_plan_json"
+jq -e '
+  [.resource_changes[] | select(.mode == "managed")] as $changes
+  | ($changes | map(.address) | sort) == ([
+      "github_repository_environment.this[\"github-iac.github-iac-plan\"]",
+      "github_repository_environment.this[\"github-iac.github-iac-production\"]"
+    ] | sort)
+  and all($changes[];
+    (.change.actions == ["no-op"] or .change.actions == ["update"])
+    and .change.before.repository == "github-iac"
+    and .change.after.repository == "github-iac"
+    and .change.before.environment == .change.after.environment
+    and (.change.after.environment == "github-iac-plan" or
+         .change.after.environment == "github-iac-production")
+    and .change.after.can_admins_bypass == false
+    and .change.after.prevent_self_review == false
+    and (.change.after.reviewers | length) == 1
+    and (.change.after.reviewers[0].users | sort) == [57728706]
+    and .change.after.reviewers[0].teams == []
+    and .change.after.deployment_branch_policy == [{
+      "custom_branch_policies": false,
+      "protected_branches": true
+    }]
+    and ((.change.importing // null) == null)
+    and ((.previous_address // null) == null))
+' "$environment_plan_json"
+terragrunt --log-disable show -no-color "$environment_plan"
+printf 'Apply this exact environment-only plan? Type apply: '
+read -r environment_confirmation
+test "$environment_confirmation" = apply
+terragrunt --log-disable apply "$environment_plan"
+
+for environment in github-iac-plan github-iac-production; do
+  gh api "repos/Stuhlmuller/github-iac/environments/$environment" |
+    jq -e --arg environment "$environment" '
+      .name == $environment
+      and .can_admins_bypass == false
+      and .deployment_branch_policy == {
+        "protected_branches": true,
+        "custom_branch_policies": false
+      }
+      and ([.protection_rules[].type] | sort) == [
+        "branch_policy",
+        "required_reviewers"
+      ]
+      and ([.protection_rules[] | select(.type == "required_reviewers") | {
+        prevent_self_review,
+        reviewer_ids: [.reviewers[].reviewer.id]
+      }] == [{
+        "prevent_self_review": false,
+        "reviewer_ids": [57728706]
+      }])
+    '
+done
+```
+
+The commands verify both state addresses, the exact reviewer, protected-branch
+restriction, and disabled administrator bypass. The ruleset-only deployment
+workflow does not reconcile these two environments.
+
+Do not dispatch while either environment is absent or while the repository secret remains; GitHub would otherwise auto-create an unprotected environment or expose the fallback repository secret.
+
+Do not run an untargeted organization-wide apply to deliver a homelab ruleset change.
+
+## Rollback
+
+Create a forward commit correcting only the incompatible rule while retaining strict mode, all other protections, the isolated `github_repository_ruleset.existing` state address, and the protected workflow. A full code revert requires a separately reviewed reverse state move after both addresses and ruleset ID `14700233` are verified. Never repair live GitHub state manually.

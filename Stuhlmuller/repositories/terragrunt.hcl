@@ -1,6 +1,5 @@
 locals {
-  org_vars     = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
-  github_token = trimspace(get_env("GITHUB_TOKEN", get_env("GH_TOKEN", "")))
+  org_vars = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
   public_repository_config = {
     visibility                = "public"
     delete_branch_on_merge    = true
@@ -52,6 +51,34 @@ inputs = {
     }
     "github-iac" = {
       visibility = "public"
+      environments = [
+        {
+          name                = "github-iac-plan"
+          can_admins_bypass   = false
+          prevent_self_review = false
+          reviewers = {
+            users = [57728706]
+            teams = []
+          }
+          deployment_branch_policy = {
+            protected_branches     = true
+            custom_branch_policies = false
+          }
+        },
+        {
+          name                = "github-iac-production"
+          can_admins_bypass   = false
+          prevent_self_review = false
+          reviewers = {
+            users = [57728706]
+            teams = []
+          }
+          deployment_branch_policy = {
+            protected_branches     = true
+            custom_branch_policies = false
+          }
+        }
+      ]
     }
     "grafana-iac" = {
       visibility = "public"
@@ -60,17 +87,64 @@ inputs = {
       visibility = "public"
       ruleset = [
         {
-          name = "main"
+          name                       = "main"
+          creation                   = true
+          deletion                   = true
+          non_fast_forward           = true
+          required_linear_history    = true
+          require_signed_commits     = true
+          update                     = false
+          require_code_owner_reviews = false
+          bypass_actors = [
+            {
+              actor_type  = "OrganizationAdmin"
+              bypass_mode = "pull_request"
+            },
+            {
+              actor_id    = 2145192
+              actor_type  = "Integration"
+              bypass_mode = "pull_request"
+            }
+          ]
+          pull_requests = [
+            {
+              allowed_merge_methods           = ["squash"]
+              required_approving_review_count = 0
+              require_code_owner_reviews      = false
+            }
+          ]
           required_status_checks = [
             {
+              strict_required_status_checks_policy = true
+              do_not_enforce_on_create             = false
               required_check = [
+                {
+                  context        = "policy-bot: main"
+                  integration_id = 3280987
+                },
                 {
                   context        = "Lint"
                   integration_id = 15368
                 },
                 {
-                  context        = "policy-bot: main"
-                  integration_id = 3280987
+                  context        = "repo"
+                  integration_id = 15368
+                },
+                {
+                  context        = "Analyze (python)"
+                  integration_id = 15368
+                },
+                {
+                  context        = "analyze-actions"
+                  integration_id = 15368
+                },
+                {
+                  context        = "release-dry-run"
+                  integration_id = 15368
+                },
+                {
+                  context        = "Terragrunt Gate"
+                  integration_id = 15368
                 }
               ]
             }
