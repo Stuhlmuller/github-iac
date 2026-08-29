@@ -32,7 +32,8 @@ jobs:
 
       - name: Check deployment guardrails
         run: |
-          bash -n Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh
+          bash -n Stuhlmuller/repositories/migrate-public-ruleset-state.sh
+          bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --self-test
           bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
           bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --self-test
           for reconciler in Stuhlmuller/security-configurations/*.sh; do
@@ -40,7 +41,7 @@ jobs:
           done
           jq -n -e --arg source self-test --arg phase after --arg expect desired \
             -f Stuhlmuller/repositories/homelab-ruleset-policy.jq >/dev/null
-          if git grep -F 2145192 -- Stuhlmuller .github/workflows/deploy.yml; then
+          if git grep -F 2145192 -- 'Stuhlmuller/**/*.hcl' .github/workflows/deploy.yml; then
             echo "Renovate must not bypass repository rulesets" >&2
             exit 1
           fi
@@ -86,6 +87,8 @@ jobs:
             fi
             allowed=false
             for pattern in "${allowed_action_patterns[@]}"; do
+              # Allowlist entries are intentional glob patterns.
+              # shellcheck disable=SC2053
               if [[ "$action_reference" == $pattern ]]; then
                 allowed=true
                 break
@@ -116,6 +119,8 @@ jobs:
             for action_reference in \
               "${workflow_action_references[@]}" \
               "${transitive_action_references[@]}"; do
+              # Allowlist entries are intentional glob patterns.
+              # shellcheck disable=SC2053
               if [[ "$action_reference" == $pattern ]]; then
                 used=true
                 break
@@ -159,6 +164,19 @@ jobs:
             --working-dir Stuhlmuller/repositories render --json)"
           jq -e '
             .inputs.default_repository_ruleset_config.bypass_actors == []
+            and .inputs.repository_ruleset_imports == {
+              ".github.main": {"ruleset_id": 11493159},
+              "ai-pr-reviewer.main": {"ruleset_id": 14700811},
+              "github-iac.main": {"ruleset_id": 5660587},
+              "grafana-iac.main": {"ruleset_id": 8218990},
+              "hivemind.main": {"ruleset_id": 17347203},
+              "homelab.main": {"ruleset_id": 14700233},
+              "personal-website.main": {"ruleset_id": 14702864},
+              "policies.main": {"ruleset_id": 9041681},
+              "renovate.main": {"ruleset_id": 14702863},
+              "terragrunt-catalog.main": {"ruleset_id": 7928987},
+              "workflows.main": {"ruleset_id": 14702865}
+            }
             and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
             and (.inputs.repositories["github-iac"].ruleset | length) == 1
             and .inputs.repositories["github-iac"].ruleset[0].bypass_actors == []

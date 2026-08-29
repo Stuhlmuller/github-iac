@@ -22,6 +22,7 @@ It does six things:
 - `repositories`: Map of repository-specific overrides keyed by repository name.
 - `default_repository_config`: Baseline settings used for all repositories and applied automatically to discovered repositories that are not explicitly configured.
 - `default_repository_ruleset_config`: Baseline ruleset settings merged into every ruleset entry.
+- `repository_ruleset_imports`: Existing ruleset IDs to import and reconcile without repository-resource dependencies.
 - `organization_rulesets`: Organization-level rulesets to apply, including repository-property targeting for dynamic scopes such as public repositories.
 - `repositories[*].environments`: Protected GitHub Actions environments, including reviewers and branch policy.
 - `results_per_page`: Page size for the GitHub repository search data source.
@@ -75,6 +76,7 @@ module "github_repositories" {
 - Repositories returned by the GitHub search API but omitted from `repositories` inherit `default_repository_config`.
 - Repositories returned by the GitHub search API but omitted from `repositories` also inherit the default `ruleset` list from `default_repository_config`.
 - Each ruleset entry is merged with `default_repository_ruleset_config`, so you can define a common ruleset once and only override repo-specific differences.
+- Declare existing rulesets in `repository_ruleset_imports`; undeclared rulesets retain their repository-creation dependency.
 - `default_branch` is only managed when it is set in the effective configuration.
 - Protected environments must reference repositories that already exist; repository creation remains a separate one-apply path.
 - GitHub's repository search API returns a maximum of 1000 repositories for this data source.

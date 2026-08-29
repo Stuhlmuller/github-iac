@@ -69,7 +69,7 @@ variable "organization_rulesets" {
 }
 
 variable "repository_ruleset_imports" {
-  description = "Repository rulesets to import, keyed by the Terraform ruleset key (<repository>.<ruleset_name>)."
+  description = "Existing repository rulesets to import and reconcile independently, keyed by <repository>.<ruleset_name>."
   type = map(object({
     ruleset_id = number
   }))

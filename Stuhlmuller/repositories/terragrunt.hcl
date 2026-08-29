@@ -1,5 +1,6 @@
 locals {
-  org_vars = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
+  org_vars                   = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
+  public_repository_rulesets = jsondecode(file("${get_terragrunt_dir()}/public-rulesets.json"))
   public_repository_config = {
     visibility                = "public"
     delete_branch_on_merge    = true
@@ -36,6 +37,10 @@ inputs = {
   default_repository_config         = local.org_vars.default_repository_config
   default_repository_ruleset_config = local.org_vars.default_repository_ruleset_config
   organization_rulesets             = local.org_vars.organization_rulesets
+  repository_ruleset_imports = {
+    for ruleset in local.public_repository_rulesets :
+    "${ruleset.repository}.main" => { ruleset_id = ruleset.ruleset_id }
+  }
   repositories = {
     ".github" = {
       visibility = "public"

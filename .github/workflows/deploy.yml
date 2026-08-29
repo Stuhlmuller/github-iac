@@ -90,7 +90,7 @@ jobs:
 
       - name: Verify reviewed state migration
         shell: bash
-        run: bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --check
+        run: bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --check
 
       - name: Create read-only GitHub App token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -272,7 +272,7 @@ jobs:
           set -euo pipefail
           git -C "$GITHUB_WORKSPACE" fetch --no-tags --depth=1 origin main
           test "$(git -C "$GITHUB_WORKSPACE" rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
-          bash "$GITHUB_WORKSPACE/Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh" --check
+          bash "$GITHUB_WORKSPACE/Stuhlmuller/repositories/migrate-public-ruleset-state.sh" --check
 
           policy_file="$GITHUB_WORKSPACE/Stuhlmuller/repositories/homelab-ruleset-policy.jq"
           terragrunt show -json "$PLAN_FILE" > plan.json
