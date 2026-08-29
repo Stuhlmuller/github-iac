@@ -39,7 +39,7 @@ def expected:
       dismissal_restriction: {enabled: false, allowed_actors: []},
       require_last_push_approval: false,
       required_review_thread_resolution: false,
-      require_extra_approval_for_unattributed_changes: false,
+      require_extra_approval_for_unattributed_changes: true,
       required_approving_review_count: 0
     },
     required_status_checks: {
@@ -119,7 +119,11 @@ def normalize_tf:
               dismissal_restriction: {enabled: false, allowed_actors: []},
               require_last_push_approval: ($pull_request.require_last_push_approval // false),
               required_review_thread_resolution: ($pull_request.required_review_thread_resolution // false),
-              require_extra_approval_for_unattributed_changes: false,
+              require_extra_approval_for_unattributed_changes: (
+                if ($pull_request | has("require_extra_approval_for_unattributed_changes")) then
+                  $pull_request.require_extra_approval_for_unattributed_changes
+                else true end
+              ),
               required_approving_review_count: ($pull_request.required_approving_review_count // 0)
             }
         else null end

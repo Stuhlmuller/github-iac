@@ -90,6 +90,13 @@ and `github-iac` hardening policies. It applies the verified saved plan and
 checks every live ruleset ID afterward. Future `homelab` ruleset changes use
 the protected workflow below.
 
+Live verification also requires [GitHub's default additional approval for
+unattributed Copilot pull requests](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#additional-approval-for-unattributed-copilot-pull-requests).
+Provider `6.12.1` does not model this public-preview field, so the
+repository-owned API check verifies exact default drift directly. GitHub notes
+that it has no effect while native required approvals remain zero; `policy-bot`
+is the effective approval gate for these repositories.
+
 The workflow never moves state. Dispatch it only after the separate migration:
 
 1. Dispatch `.github/workflows/deploy.yml` on `main` with `expected_sha` set to the reviewed commit.
