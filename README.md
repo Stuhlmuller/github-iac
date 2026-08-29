@@ -36,7 +36,12 @@ patterns, validity checks, private vulnerability reporting, the dependency
 graph, and Dependabot alerts. Custom CodeQL remains workflow-owned. Actions are
 restricted to the repository's exact action allowlist, full commit SHA pins,
 read-only default tokens, approval for every external contributor, and one-day
-log retention. Renovate owns update pull requests, so automatic Dependabot
+log retention. Newly published releases are immutable. The organization ruleset
+`public-release-tags` prevents updates or deletion of every tag in both public
+control-plane repositories without bypass actors. The ten releases predating
+this policy have no assets; their tags are protected, but their release notes
+remain mutable because GitHub cannot make existing releases immutable without
+republishing them. Renovate owns update pull requests, so automatic Dependabot
 updates remain disabled.
 
 The script requires an authenticated organization owner or security manager
@@ -44,10 +49,13 @@ with organization Administration write, repository Administration write,
 Dependabot alerts read, and Contents read permissions. It refuses duplicate or
 out-of-scope attachments, verifies effective repository APIs rather than only
 configuration metadata, and exits unsuccessfully when either repository has an
-open Dependabot alert.
+open Dependabot alert. Apply the Terragrunt configuration before this reconciler
+so the organization tag ruleset exists.
 
-Rollback reattaches both repositories to the existing `Public Protection`
-configuration after verifying effective secret scanning and push protection.
+Rollback only reattaches both repositories to the existing `Public Protection`
+code-security configuration after verifying effective secret scanning and push
+protection. Release tags stay protected, and future immutable releases remain
+immutable.
 It preserves the stricter Actions settings:
 
 ```bash

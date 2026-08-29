@@ -437,6 +437,13 @@ resource "github_organization_ruleset" "this" {
   }
 
   rules {
+    creation                = try(each.value.creation, false)
+    update                  = try(each.value.update, false)
+    deletion                = try(each.value.deletion, false)
+    non_fast_forward        = try(each.value.non_fast_forward, false)
+    required_linear_history = try(each.value.required_linear_history, false)
+    required_signatures     = try(each.value.require_signed_commits, false)
+
     dynamic "required_status_checks" {
       for_each = try(each.value.required_status_checks, [])
       content {

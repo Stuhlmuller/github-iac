@@ -36,6 +36,7 @@ jobs:
           bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --self-test
           bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
           bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --self-test
+          bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --self-test
           for reconciler in Stuhlmuller/security-configurations/*.sh; do
             bash -n "$reconciler"
           done
@@ -164,6 +165,25 @@ jobs:
             --working-dir Stuhlmuller/repositories render --json)"
           jq -e '
             .inputs.default_repository_ruleset_config.bypass_actors == []
+            and .inputs.organization_rulesets == [
+              {
+                "name": "public-release-tags",
+                "target": "tag",
+                "enforcement": "active",
+                "conditions": [
+                  {
+                    "repository_name": {
+                      "include": ["github-iac", "homelab"],
+                      "exclude": []
+                    },
+                    "ref_name": {"include": ["~ALL"], "exclude": []}
+                  }
+                ],
+                "update": true,
+                "deletion": true,
+                "bypass_actors": []
+              }
+            ]
             and .inputs.repository_ruleset_imports == {
               ".github.main": {"ruleset_id": 11493159},
               "ai-pr-reviewer.main": {"ruleset_id": 14700811},
