@@ -34,13 +34,7 @@ locals {
         ]
       }
     ]
-    bypass_actors = [
-      {
-        actor_id    = 2145192
-        actor_type  = "Integration"
-        bypass_mode = "pull_request"
-      }
-    ]
+    bypass_actors = []
   }
   organization_rulesets = []
 }

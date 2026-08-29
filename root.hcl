@@ -5,13 +5,6 @@ locals {
   default_tags = local.common_vars.default_tags
 }
 
-terraform {
-  extra_arguments "plan" {
-    commands  = ["plan"]
-    arguments = ["-out", "plan.out"]
-  }
-}
-
 remote_state {
   backend = "s3"
   generate = {
@@ -23,6 +16,7 @@ remote_state {
     key          = "IaC/${lower(local.project_name)}/${path_relative_to_include()}/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true
+    kms_key_id   = "alias/homelab-opentofu"
     use_lockfile = true
   }
 }

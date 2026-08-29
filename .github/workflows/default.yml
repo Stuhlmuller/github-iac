@@ -2,8 +2,8 @@ name: "Default Checks"
 
 permissions:
   contents: read # for actions/checkout to fetch code
-  checks: write # for merge gatekeeper to create checks
-  statuses: write # for merge gatekeeper to create statuses
+  checks: read # for merge gatekeeper to inspect checks
+  statuses: read # for merge gatekeeper to inspect statuses
 
 on:
   pull_request:

@@ -2,13 +2,14 @@
 
 This module reconciles GitHub repositories for an organization from a single list of repository configurations plus an organization-wide default configuration.
 
-It does five things:
+It does six things:
 
 1. Reads all repositories in the organization with `data.github_repositories`.
 2. Merges explicit `repositories` entries with `default_repository_config`.
 3. Imports discovered repositories into OpenTofu state and manages them with the merged configuration.
 4. Applies per-repository rulesets derived from `default_repository_ruleset_config` and each repository's `ruleset` list.
-5. Applies organization-level rulesets from `organization_rulesets`.
+5. Applies protected deployment environments declared on repositories.
+6. Applies organization-level rulesets from `organization_rulesets`.
 
 ## Requirements
 
@@ -22,6 +23,7 @@ It does five things:
 - `default_repository_config`: Baseline settings used for all repositories and applied automatically to discovered repositories that are not explicitly configured.
 - `default_repository_ruleset_config`: Baseline ruleset settings merged into every ruleset entry.
 - `organization_rulesets`: Organization-level rulesets to apply, including repository-property targeting for dynamic scopes such as public repositories.
+- `repositories[*].environments`: Protected GitHub Actions environments, including reviewers and branch policy.
 - `results_per_page`: Page size for the GitHub repository search data source.
 
 ## Example
@@ -74,4 +76,5 @@ module "github_repositories" {
 - Repositories returned by the GitHub search API but omitted from `repositories` also inherit the default `ruleset` list from `default_repository_config`.
 - Each ruleset entry is merged with `default_repository_ruleset_config`, so you can define a common ruleset once and only override repo-specific differences.
 - `default_branch` is only managed when it is set in the effective configuration.
+- Protected environments must reference repositories that already exist; repository creation remains a separate one-apply path.
 - GitHub's repository search API returns a maximum of 1000 repositories for this data source.
