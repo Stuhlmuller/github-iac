@@ -20,21 +20,17 @@ rulesets=(
 )
 
 case "$mode" in
-  --apply | --check) ;;
+  --apply | --check | --self-test) ;;
   *)
-    echo "usage: $0 [--check|--apply]" >&2
+    echo "usage: $0 [--check|--apply|--self-test]" >&2
     exit 2
     ;;
 esac
 
-for command_name in cmp gh jq terragrunt; do
-  command -v "$command_name" >/dev/null || {
-    echo "$command_name is required" >&2
-    exit 1
-  }
-done
-: "${GITHUB_TOKEN:?GITHUB_TOKEN is required for the GitHub provider}"
-export GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}"
+command -v jq >/dev/null || {
+  echo "jq is required" >&2
+  exit 1
+}
 rulesets_json="$(jq -cn --args '
   $ARGS.positional
   | map(split("|") as $parts | {
@@ -43,6 +39,53 @@ rulesets_json="$(jq -cn --args '
       address: $parts[2]
     })
   ' "${rulesets[@]}")"
+plan_policy_file="$script_dir/public-ruleset-plan-policy.jq"
+
+if [[ "$mode" == "--self-test" ]]; then
+  plan_fixture="$(jq -cn --argjson metadata "$rulesets_json" '
+    {
+      resource_changes: [
+        $metadata[]
+        | (.ruleset_id | tostring) as $id
+        | {
+            address,
+            mode: "managed",
+            type: "github_repository_ruleset",
+            change: {
+              actions: ["no-op"],
+              before: {repository, ruleset_id, id: $id, bypass_actors: []},
+              after: {repository, ruleset_id, id: $id, bypass_actors: []}
+            }
+          }
+      ]
+    }
+  ')"
+  jq -e \
+    --arg homelab "$homelab_address" \
+    --arg github_iac "$github_iac_address" \
+    --argjson expected_metadata "$rulesets_json" \
+    -f "$plan_policy_file" <<<"$plan_fixture" >/dev/null
+  if jq '.resource_changes[0].change.after.ruleset_id = -1' <<<"$plan_fixture" |
+    jq -e \
+      --arg homelab "$homelab_address" \
+      --arg github_iac "$github_iac_address" \
+      --argjson expected_metadata "$rulesets_json" \
+      -f "$plan_policy_file" >/dev/null; then
+    echo "ruleset identity negative fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  echo "public ruleset plan policy fixtures passed"
+  exit 0
+fi
+
+for command_name in cmp gh terragrunt; do
+  command -v "$command_name" >/dev/null || {
+    echo "$command_name is required" >&2
+    exit 1
+  }
+done
+: "${GITHUB_TOKEN:?GITHUB_TOKEN is required for the GitHub provider}"
+export GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}"
 
 github_api() {
   gh api \
@@ -91,51 +134,8 @@ plan_json="$(terragrunt --log-disable show -json "$plan_file")"
 jq -e \
   --arg homelab "$homelab_address" \
   --arg github_iac "$github_iac_address" \
-  --argjson expected_metadata "$rulesets_json" '
-  [
-    "github_repository_ruleset.this[\".github.main\"]",
-    "github_repository_ruleset.this[\"ai-pr-reviewer.main\"]",
-    "github_repository_ruleset.this[\"github-iac.main\"]",
-    "github_repository_ruleset.this[\"grafana-iac.main\"]",
-    "github_repository_ruleset.this[\"hivemind.main\"]",
-    "github_repository_ruleset.existing[\"homelab.main\"]",
-    "github_repository_ruleset.this[\"personal-website.main\"]",
-    "github_repository_ruleset.this[\"policies.main\"]",
-    "github_repository_ruleset.this[\"renovate.main\"]",
-    "github_repository_ruleset.this[\"terragrunt-catalog.main\"]",
-    "github_repository_ruleset.this[\"workflows.main\"]"
-  ] as $expected
-  | [.resource_changes[]? | select(.mode == "managed")] as $managed
-  | [$managed[] | select(.type == "github_repository_ruleset")] as $rulesets
-  | ($rulesets | map(.address) | sort) == ($expected | sort)
-  and all($expected_metadata[] as $expected_ruleset;
-    [$rulesets[] | select(.address == $expected_ruleset.address)] as $matches
-    | ($matches | length) == 1
-    and all(["before", "after"][] as $phase;
-      $matches[0].change[$phase].repository == $expected_ruleset.repository
-      and $matches[0].change[$phase].ruleset_id == $expected_ruleset.ruleset_id
-      and (($matches[0].change[$phase].id | tostring) == ($expected_ruleset.ruleset_id | tostring))))
-  and all($managed[];
-    ((.change.importing // null) == null)
-    and ((.previous_address // null) == null)
-    and (if .type == "github_repository_ruleset" then
-      (.change.actions == ["no-op"] or .change.actions == ["update"])
-    else
-      .change.actions == ["no-op"]
-    end))
-  and all($rulesets[]; (.change.after.bypass_actors // []) == [])
-  and all($rulesets[];
-    if (.address == $homelab or .address == $github_iac) then true
-    elif .change.actions == ["no-op"] then
-      .change.before == .change.after
-      and (.change.after.bypass_actors // []) == []
-    else
-      (.change.before.bypass_actors | length) == 1
-      and .change.before.bypass_actors[0].actor_type == "Integration"
-      and .change.before.bypass_actors[0].bypass_mode == "pull_request"
-      and ((.change.before | del(.bypass_actors)) == (.change.after | del(.bypass_actors)))
-    end)
-  ' <<<"$plan_json" >/dev/null
+  --argjson expected_metadata "$rulesets_json" \
+  -f "$plan_policy_file" <<<"$plan_json" >/dev/null
 
 jq --arg address "$homelab_address" '
   {resource_changes: [.resource_changes[] | select(.address == $address)]}
