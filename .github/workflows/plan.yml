@@ -5,14 +5,6 @@ on:
     types: [opened, synchronize, reopened, edited]
     branches:
       - main
-    paths:
-      - 'Stuhlmuller/**'
-      - 'modules/github_repositories/**'
-      - 'common.yml'
-      - 'mise.toml'
-      - 'root.hcl'
-      - '.github/workflows/plan.yml'
-      - '.github/workflows/deploy.yml'
 
 permissions:
   contents: read
@@ -41,9 +33,142 @@ jobs:
       - name: Check deployment guardrails
         run: |
           bash -n Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh
+          bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
+          for reconciler in Stuhlmuller/security-configurations/*.sh; do
+            bash -n "$reconciler"
+          done
           jq -n -e --arg source self-test --arg phase after --arg expect desired \
             -f Stuhlmuller/repositories/homelab-ruleset-policy.jq >/dev/null
           if git grep -F 2145192 -- Stuhlmuller .github/workflows/deploy.yml; then
             echo "Renovate must not bypass repository rulesets" >&2
             exit 1
           fi
+
+          mapfile -t workflow_files < <(
+            git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml'
+          )
+          mapfile -t workflow_action_references < <(
+            ruby -ryaml -e '
+              def print_uses(value)
+                case value
+                when Hash
+                  value.each do |key, child|
+                    puts child if key == "uses"
+                    print_uses(child)
+                  end
+                when Array
+                  value.each { |child| print_uses(child) }
+                end
+              end
+              ARGV.each do |path|
+                workflow = YAML.safe_load(
+                  File.read(path),
+                  permitted_classes: [],
+                  permitted_symbols: [],
+                  aliases: true
+                )
+                print_uses(workflow)
+              end
+            ' "${workflow_files[@]}"
+          )
+          mapfile -t allowed_action_patterns < <(
+            jq -r '."github-iac"[]' \
+              Stuhlmuller/security-configurations/allowed-actions.json
+          )
+          for action_reference in "${workflow_action_references[@]}"; do
+            if [[ "$action_reference" == ./* ]]; then
+              continue
+            fi
+            if [[ ! "$action_reference" =~ ^[^[:space:]#]+@[0-9a-f]{40}$ ]]; then
+              echo "workflow dependency is not pinned to a full commit SHA: $action_reference" >&2
+              exit 1
+            fi
+            allowed=false
+            for pattern in "${allowed_action_patterns[@]}"; do
+              if [[ "$action_reference" == $pattern ]]; then
+                allowed=true
+                break
+              fi
+            done
+            if [[ "$allowed" != true ]]; then
+              echo "workflow dependency is absent from the github-iac allowlist: $action_reference" >&2
+              exit 1
+            fi
+          done
+
+          transitive_action_dependencies=(
+            'gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a|jdx/mise-action@c1ecc8f748cd28cdeabf76dab3cccde4ce692fe4'
+            'stuhlmuller/workflows/.github/workflows/default.yml@14e7ad57baa94785a31868de3e376c90f0cbfe43|upsidr/merge-gatekeeper@09af7a82c1666d0e64d2bd8c01797a0bcfd3bb5d'
+          )
+          transitive_action_references=()
+          for dependency in "${transitive_action_dependencies[@]}"; do
+            parent="${dependency%%|*}"
+            child="${dependency#*|}"
+            printf '%s\n' "${workflow_action_references[@]}" | grep -Fqx -- "$parent"
+            transitive_action_references+=("$child")
+            jq -e --arg child "$child" \
+              '."github-iac" | index($child) != null' \
+              Stuhlmuller/security-configurations/allowed-actions.json >/dev/null
+          done
+          for pattern in "${allowed_action_patterns[@]}"; do
+            used=false
+            for action_reference in \
+              "${workflow_action_references[@]}" \
+              "${transitive_action_references[@]}"; do
+              if [[ "$action_reference" == $pattern ]]; then
+                used=true
+                break
+              fi
+            done
+            if [[ "$used" != true ]]; then
+              echo "unused github-iac action allowlist pattern: $pattern" >&2
+              exit 1
+            fi
+          done
+          jq -e '
+            (.homelab | sort) == ([
+              "actions/checkout@*",
+              "aws-actions/configure-aws-credentials@*",
+              "cachix/install-nix-action@*",
+              "cycjimmy/semantic-release-action@*",
+              "github/codeql-action/*@*",
+              "nix-community/cache-nix-action@*",
+              "super-linter/super-linter@*"
+            ] | sort)
+            and (."github-iac" | index("github/codeql-action/*@*") != null)
+          ' Stuhlmuller/security-configurations/allowed-actions.json >/dev/null
+          ruby -ryaml -e '
+            workflow = YAML.safe_load(
+              File.read(".github/workflows/release.yml"),
+              permitted_classes: [],
+              permitted_symbols: [],
+              aliases: true
+            )
+            steps = workflow.fetch("jobs").values.flat_map { |job| job.fetch("steps", []) }
+            releases = steps.select do |step|
+              step["uses"] == "cycjimmy/semantic-release-action@b12c8f6015dc215fe37bc154d4ad456dd3833c90"
+            end
+            abort "semantic-release must be pinned twice" unless releases.length == 2
+            abort "semantic-release package version is not exact" unless releases.all? do |step|
+              step.fetch("with", {})["semantic_version"] == "25.0.9"
+            end
+          '
+
+          rendered_config="$(terragrunt --log-disable \
+            --working-dir Stuhlmuller/repositories render --json)"
+          jq -e '
+            .inputs.default_repository_ruleset_config.bypass_actors == []
+            and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
+            and (.inputs.repositories["github-iac"].ruleset | length) == 1
+            and .inputs.repositories["github-iac"].ruleset[0].bypass_actors == []
+            and .inputs.repositories["github-iac"].ruleset[0].non_fast_forward == true
+            and .inputs.repositories["github-iac"].ruleset[0].require_signed_commits == true
+            and .inputs.repositories["github-iac"].ruleset[0].required_status_checks[0].strict_required_status_checks_policy == true
+            and ([.inputs.repositories["github-iac"].ruleset[0].required_status_checks[0].required_check[].context] | sort) == ([
+              "policy-bot: main",
+              "check / merge-checks",
+              "checks",
+              "release",
+              "analyze-actions"
+            ] | sort)
+          ' <<<"$rendered_config" >/dev/null

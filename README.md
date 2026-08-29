@@ -17,37 +17,41 @@ terragrunt hcl fmt --check --diff
 tofu fmt -check -recursive
 ```
 
-Pull requests run static checks only. Pull-request code receives no AWS
+Pull requests run unprivileged validation only. Pull-request code receives no AWS
 credentials, GitHub App private key, or organization-write token.
 
-## Repository security configurations
+## Public control-plane security
 
 The GitHub provider does not expose organization code-security configurations.
-The repository therefore owns one narrow API reconciler for the enforced
-`Stuhlmuller/homelab` exception:
+The repository therefore owns one narrow API reconciler for `homelab` and
+`github-iac`:
 
 ```bash
-bash Stuhlmuller/security-configurations/reconcile-homelab.sh --check
-bash Stuhlmuller/security-configurations/reconcile-homelab.sh --apply
+bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --check
+bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --apply
 ```
 
-The configuration keeps secret scanning and push protection enabled, enables
-private vulnerability reporting, the dependency graph, and Dependabot alerts,
-sets Actions artifact and log retention to one day, and leaves automatic Dependabot
-updates disabled because Renovate owns update pull requests. The script requires
-an authenticated organization owner or security manager with organization
-Administration write plus repository Administration write, Dependabot alerts
-read, and Contents read permissions. A classic token needs `write:org` and
-`repo`. The script refuses duplicate configurations or attachments outside
-`homelab`, verifies both alert and SBOM APIs, prints every open alert, and exits
-unsuccessfully until all alerts are resolved or dismissed with justification.
+The configuration enables secret scanning, push protection, non-provider
+patterns, validity checks, private vulnerability reporting, the dependency
+graph, and Dependabot alerts. Custom CodeQL remains workflow-owned. Actions are
+restricted to the repository's exact action allowlist, full commit SHA pins,
+read-only default tokens, approval for every external contributor, and one-day
+log retention. Renovate owns update pull requests, so automatic Dependabot
+updates remain disabled.
 
-Rollback reattaches only `homelab` to the existing `Public Protection`
-configuration after verifying that it enforces secret scanning and push
-protection:
+The script requires an authenticated organization owner or security manager
+with organization Administration write, repository Administration write,
+Dependabot alerts read, and Contents read permissions. It refuses duplicate or
+out-of-scope attachments, verifies effective repository APIs rather than only
+configuration metadata, and exits unsuccessfully when either repository has an
+open Dependabot alert.
+
+Rollback reattaches both repositories to the existing `Public Protection`
+configuration after verifying effective secret scanning and push protection.
+It preserves the stricter Actions settings:
 
 ```bash
-bash Stuhlmuller/security-configurations/reconcile-homelab.sh --rollback
+bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --rollback
 ```
 
 ## Protected deployment
@@ -64,7 +68,24 @@ bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --apply
 bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --check
 ```
 
-The workflow never moves state. Dispatch it only after that separate migration:
+After the migration, run the repository-owned all-public-ruleset reconciler
+once with administrator AWS credentials and an administrator GitHub token:
+
+```bash
+GITHUB_TOKEN="$(gh auth token)" \
+  bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --apply
+GITHUB_TOKEN="$(gh auth token)" \
+  bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --check
+```
+
+The script plans only the 11 declared public-repository rulesets. It rejects
+imports, state moves, destructive actions, unrelated drift, or any change
+outside removal of the existing integration bypass plus the exact `homelab`
+and `github-iac` hardening policies. It applies the verified saved plan and
+checks every live ruleset ID afterward. Future `homelab` ruleset changes use
+the protected workflow below.
+
+The workflow never moves state. Dispatch it only after the separate migration:
 
 1. Dispatch `.github/workflows/deploy.yml` on `main` with `expected_sha` set to the reviewed commit.
 2. Approve `github-iac-plan`.
@@ -87,12 +108,15 @@ version for investigation and explicit cleanup.
 
 Required GitHub configuration:
 
-- `APP_CLIENT_ID` repository variable for the `stuhlmuller-github-iac` App.
+- `APP_CLIENT_ID` repository variable for a dedicated deployment App.
 - `APP_PRIVATE_KEY` environment secret in both `github-iac-plan` and `github-iac-production`; do not store it as a repository secret.
-- GitHub App repository permission: Administration write, scoped by the workflow to `homelab`.
+- The App is installed only on `homelab`, grants repository Administration
+  write, and grants no organization or other repository permission. The
+  workflow also scopes every generated token to `homelab`.
 - Reviewer `rstuhlmuller` on both environments. Administrator bypass is disabled and deployments are restricted to protected branches.
 
-Bootstrap both protected environments and rotate the App private key into environment-level secrets before merging this workflow:
+Before dispatching the protected workflow, restrict the App installation and
+permissions, then rotate its private key into both protected environments:
 
 ```bash
 set -euo pipefail
@@ -175,10 +199,14 @@ jq -e '
     and (.change.after.reviewers | length) == 1
     and (.change.after.reviewers[0].users | sort) == [57728706]
     and .change.after.reviewers[0].teams == []
-    and .change.after.deployment_branch_policy == [{
-      "custom_branch_policies": false,
-      "protected_branches": true
-    }]
+    and (if .change.after.environment == "homelab-plan" then
+      .change.after.deployment_branch_policy == []
+    else
+      .change.after.deployment_branch_policy == [{
+        "custom_branch_policies": false,
+        "protected_branches": true
+      }]
+    end)
     and ((.change.importing // null) == null)
     and ((.previous_address // null) == null))
 ' "$environment_plan_json"
@@ -195,14 +223,19 @@ for target in "${environment_targets[@]}"; do
     jq -e --arg environment "$environment" '
       .name == $environment
       and .can_admins_bypass == false
-      and .deployment_branch_policy == {
-        "protected_branches": true,
-        "custom_branch_policies": false
-      }
-      and ([.protection_rules[].type] | sort) == [
-        "branch_policy",
-        "required_reviewers"
-      ]
+      and (if $environment == "homelab-plan" then
+        .deployment_branch_policy == null
+        and ([.protection_rules[].type] | sort) == ["required_reviewers"]
+      else
+        .deployment_branch_policy == {
+          "protected_branches": true,
+          "custom_branch_policies": false
+        }
+        and ([.protection_rules[].type] | sort) == [
+          "branch_policy",
+          "required_reviewers"
+        ]
+      end)
       and ([.protection_rules[] | select(.type == "required_reviewers") | {
         prevent_self_review,
         reviewer_ids: [.reviewers[].reviewer.id]
@@ -214,9 +247,12 @@ for target in "${environment_targets[@]}"; do
 done
 ```
 
-The commands verify all four state addresses, the exact reviewer,
-protected-branch restriction, and disabled administrator bypass. The
-ruleset-only deployment workflow does not reconcile environments.
+The commands verify all four state addresses, the exact reviewer, disabled
+administrator bypass, protected `main` deployments, and unrestricted trusted
+pull-request refs for `homelab-plan`. The ruleset-only deployment workflow does
+not reconcile environments. `homelab-plan` intentionally omits a branch policy
+because required same-repository pull-request plans run from feature refs; the
+workflow trust check and required environment reviewer remain the gate.
 
 `prevent_self_review` remains false because user `57728706` is the only owner
 and deployment reviewer. Enable it after adding a second qualified reviewer;

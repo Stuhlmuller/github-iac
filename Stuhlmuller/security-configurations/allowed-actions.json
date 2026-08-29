@@ -1,0 +1,22 @@
+{
+  "homelab": [
+    "actions/checkout@*",
+    "aws-actions/configure-aws-credentials@*",
+    "cachix/install-nix-action@*",
+    "cycjimmy/semantic-release-action@*",
+    "github/codeql-action/*@*",
+    "nix-community/cache-nix-action@*",
+    "super-linter/super-linter@*"
+  ],
+  "github-iac": [
+    "actions/checkout@*",
+    "actions/create-github-app-token@*",
+    "aws-actions/configure-aws-credentials@*",
+    "cycjimmy/semantic-release-action@*",
+    "github/codeql-action/*@*",
+    "gruntwork-io/terragrunt-action@*",
+    "jdx/mise-action@c1ecc8f748cd28cdeabf76dab3cccde4ce692fe4",
+    "stuhlmuller/workflows/.github/workflows/default.yml@*",
+    "upsidr/merge-gatekeeper@09af7a82c1666d0e64d2bd8c01797a0bcfd3bb5d"
+  ]
+}
