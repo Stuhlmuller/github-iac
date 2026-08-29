@@ -63,6 +63,35 @@ inputs = {
 }
 ```
 
+## Repository security configurations
+
+The GitHub provider does not expose organization code-security configurations.
+The repository therefore owns one narrow API reconciler for the enforced
+`Stuhlmuller/homelab` exception:
+
+```bash
+bash Stuhlmuller/security-configurations/reconcile-homelab.sh --check
+bash Stuhlmuller/security-configurations/reconcile-homelab.sh --apply
+```
+
+The configuration keeps secret scanning and push protection enabled, enables
+the dependency graph and Dependabot alerts, and leaves automatic Dependabot
+updates disabled because Renovate owns update pull requests. The script requires
+an authenticated organization owner or security manager with organization
+Administration write plus repository Administration read, Dependabot alerts
+read, and Contents read permissions. A classic token needs `write:org` and
+`repo`. The script refuses duplicate configurations or attachments outside
+`homelab`, verifies both alert and SBOM APIs, prints every open alert, and exits
+unsuccessfully until all alerts are resolved or dismissed with justification.
+
+Rollback reattaches only `homelab` to the existing `Public Protection`
+configuration after verifying that it enforces secret scanning and push
+protection:
+
+```bash
+bash Stuhlmuller/security-configurations/reconcile-homelab.sh --rollback
+```
+
 ## Development Environment 🧰
 
 This project includes a devcontainer configuration with all necessary tools pre-installed:
