@@ -6,6 +6,8 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 manifest_file="$script_dir/public-rulesets.json"
 homelab_address='github_repository_ruleset.existing["homelab.main"]'
 github_iac_address='github_repository_ruleset.existing["github-iac.main"]'
+homelab_policy_file="$script_dir/homelab-ruleset-policy.jq"
+github_iac_live_policy_file="$script_dir/github-iac-live-ruleset-policy.jq"
 
 case "$mode" in
   --apply | --check | --self-test) ;;
@@ -125,6 +127,100 @@ if [[ "$mode" == "--self-test" ]]; then
     echo "unrelated resource negative fixture unexpectedly passed" >&2
     exit 1
   fi
+
+  homelab_live_fixture="$(
+    jq -n -c \
+      --arg source self-test \
+      --arg phase after \
+      --arg expect any \
+      -f "$homelab_policy_file" |
+      jq -c '
+        . as $expected
+        | {
+            id: ($expected.id | tonumber),
+            name: $expected.name,
+            target: $expected.target,
+            enforcement: $expected.enforcement,
+            conditions: $expected.conditions,
+            bypass_actors: [],
+            rules: [
+              $expected.rule_types[] as $type
+              | if $type == "pull_request" then {
+                  type: $type,
+                  parameters: ($expected.pull_request + {
+                    require_extra_approval_for_unattributed_changes: true
+                  })
+                }
+                elif $type == "required_status_checks" then {
+                  type: $type,
+                  parameters: {
+                    strict_required_status_checks_policy: $expected.required_status_checks.strict_required_status_checks_policy,
+                    do_not_enforce_on_create: $expected.required_status_checks.do_not_enforce_on_create,
+                    required_status_checks: $expected.required_status_checks.checks
+                  }
+                }
+                else {type: $type} end
+            ]
+          }
+      '
+  )"
+  jq -e \
+    --arg source live \
+    --arg phase after \
+    --arg expect desired \
+    -f "$homelab_policy_file" <<<"$homelab_live_fixture" >/dev/null
+  for invalid_value in false missing; do
+    if [[ "$invalid_value" == false ]]; then
+      invalid_fixture="$(jq '(.rules[] | select(.type == "pull_request") | .parameters.require_extra_approval_for_unattributed_changes) = false' <<<"$homelab_live_fixture")"
+    else
+      invalid_fixture="$(jq '(.rules[] | select(.type == "pull_request") | .parameters) |= del(.require_extra_approval_for_unattributed_changes)' <<<"$homelab_live_fixture")"
+    fi
+    if jq -e \
+      --arg source live \
+      --arg phase after \
+      --arg expect desired \
+      -f "$homelab_policy_file" <<<"$invalid_fixture" >/dev/null 2>&1; then
+      echo "homelab $invalid_value extra-approval fixture unexpectedly passed" >&2
+      exit 1
+    fi
+  done
+
+  github_iac_live_fixture="$(jq -cn '{rules: [
+    {type: "creation"},
+    {type: "deletion"},
+    {type: "non_fast_forward"},
+    {type: "pull_request", parameters: {
+      allowed_merge_methods: ["squash"],
+      required_approving_review_count: 0,
+      require_code_owner_review: false,
+      require_extra_approval_for_unattributed_changes: true
+    }},
+    {type: "required_linear_history"},
+    {type: "required_signatures"},
+    {type: "required_status_checks", parameters: {
+      strict_required_status_checks_policy: true,
+      do_not_enforce_on_create: false,
+      required_status_checks: [
+        {context: "policy-bot: main", integration_id: 3280987},
+        {context: "check / merge-checks", integration_id: 15368},
+        {context: "checks", integration_id: 15368},
+        {context: "release", integration_id: 15368},
+        {context: "analyze-actions", integration_id: 15368}
+      ]
+    }}
+  ]}')"
+  jq -e -f "$github_iac_live_policy_file" <<<"$github_iac_live_fixture" >/dev/null
+  for invalid_value in false missing; do
+    if [[ "$invalid_value" == false ]]; then
+      invalid_fixture="$(jq '(.rules[] | select(.type == "pull_request") | .parameters.require_extra_approval_for_unattributed_changes) = false' <<<"$github_iac_live_fixture")"
+    else
+      invalid_fixture="$(jq '(.rules[] | select(.type == "pull_request") | .parameters) |= del(.require_extra_approval_for_unattributed_changes)' <<<"$github_iac_live_fixture")"
+    fi
+    if jq -e -f "$github_iac_live_policy_file" <<<"$invalid_fixture" >/dev/null; then
+      echo "github-iac $invalid_value extra-approval fixture unexpectedly passed" >&2
+      exit 1
+    fi
+  done
   echo "public ruleset plan policy fixtures passed"
   exit 0
 fi
@@ -192,7 +288,7 @@ jq --arg address "$homelab_address" '
   {resource_changes: [.resource_changes[] | select(.address == $address)]}
   ' <<<"$plan_json" |
   jq -e -S -c --arg source plan --arg phase after --arg expect desired \
-    -f homelab-ruleset-policy.jq >/dev/null
+    -f "$homelab_policy_file" >/dev/null
 
 jq -e --arg address "$github_iac_address" '
   [.resource_changes[] | select(.address == $address)]
@@ -308,40 +404,9 @@ for entry in "${rulesets[@]}"; do
 
   if [[ "$repository" == "homelab" ]]; then
     jq -e -S -c --arg source live --arg phase after --arg expect desired \
-      -f homelab-ruleset-policy.jq <<<"$live" >/dev/null
+      -f "$homelab_policy_file" <<<"$live" >/dev/null
   elif [[ "$repository" == "github-iac" ]]; then
-    jq -e '
-      ([.rules[].type] | sort) == ([
-        "creation",
-        "deletion",
-        "non_fast_forward",
-        "pull_request",
-        "required_linear_history",
-        "required_signatures",
-        "required_status_checks"
-      ] | sort)
-      and ([.rules[] | select(.type == "pull_request")] | length) == 1
-      and ([.rules[] | select(.type == "pull_request")][0].parameters | {
-        allowed_merge_methods,
-        required_approving_review_count,
-        require_code_owner_review
-      }) == {
-        allowed_merge_methods: ["squash"],
-        required_approving_review_count: 0,
-        require_code_owner_review: false
-      }
-      and ([.rules[] | select(.type == "required_status_checks")] | length) == 1
-      and ([.rules[] | select(.type == "required_status_checks")][0].parameters as $parameters
-        | $parameters.strict_required_status_checks_policy == true
-        and $parameters.do_not_enforce_on_create == false
-        and ([$parameters.required_status_checks[] | {context, integration_id}] | sort_by(.context)) == ([
-          {context: "policy-bot: main", integration_id: 3280987},
-          {context: "check / merge-checks", integration_id: 15368},
-          {context: "checks", integration_id: 15368},
-          {context: "release", integration_id: 15368},
-          {context: "analyze-actions", integration_id: 15368}
-        ] | sort_by(.context)))
-    ' <<<"$live" >/dev/null
+    jq -e -f "$github_iac_live_policy_file" <<<"$live" >/dev/null
   fi
 done
 
