@@ -36,5 +36,26 @@ locals {
     ]
     bypass_actors = []
   }
-  organization_rulesets = []
+  organization_rulesets = [
+    {
+      name        = "public-release-tags"
+      target      = "tag"
+      enforcement = "active"
+      conditions = [
+        {
+          repository_name = {
+            include = ["github-iac", "homelab"]
+            exclude = []
+          }
+          ref_name = {
+            include = ["~ALL"]
+            exclude = []
+          }
+        }
+      ]
+      update        = true
+      deletion      = true
+      bypass_actors = []
+    }
+  ]
 }

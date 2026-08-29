@@ -7,18 +7,23 @@ organization="Stuhlmuller"
 repositories=("homelab" "github-iac")
 configuration_name="Public Control Plane Protection"
 rollback_configuration_name="Public Protection"
+release_ruleset_name="public-release-tags"
 api_version="2026-03-10"
 actions_retention_days=1
 
 case "$mode" in
-  --apply | --check | --rollback) ;;
+  --apply | --check | --rollback | --self-test) ;;
   *)
-    echo "usage: $0 [--check|--apply|--rollback]" >&2
+    echo "usage: $0 [--check|--apply|--rollback|--self-test]" >&2
     exit 2
     ;;
 esac
 
-for command_name in gh jq; do
+required_commands=(jq)
+if [[ "$mode" != "--self-test" ]]; then
+  required_commands+=(gh)
+fi
+for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null || {
     echo "$command_name is required" >&2
     exit 1
@@ -59,6 +64,166 @@ desired_configuration="$(jq -n \
     enforcement: "enforced"
   }'
 )"
+
+require_release_ruleset() {
+  jq -e --arg name "$release_ruleset_name" --argjson repositories "$repositories_json" '
+    .name == $name
+    and .target == "tag"
+    and .enforcement == "active"
+    and (.bypass_actors // []) == []
+    and (.conditions.ref_name.include | sort) == ["~ALL"]
+    and (.conditions.ref_name.exclude // []) == []
+    and (.conditions.repository_name.include | sort) == ($repositories | sort)
+    and (.conditions.repository_name.exclude // []) == []
+    and ([.rules[].type] | sort) == (["deletion", "update"] | sort)
+  ' >/dev/null
+}
+
+verify_release_ruleset() {
+  local matches=""
+  local ruleset_id=""
+
+  matches="$(
+    github_api --method GET "orgs/$organization/rulesets" -f per_page=100 |
+      jq -c --arg name "$release_ruleset_name" '[.[] | select(.name == $name)]'
+  )"
+  if [[ "$(jq length <<<"$matches")" -ne 1 ]]; then
+    echo "expected one $release_ruleset_name organization ruleset" >&2
+    return 1
+  fi
+
+  ruleset_id="$(jq -r '.[0].id' <<<"$matches")"
+  github_api "orgs/$organization/rulesets/$ruleset_id" |
+    require_release_ruleset
+}
+
+reconcile_immutable_releases() {
+  local repository="$1"
+  local immutable=""
+
+  immutable="$(
+    github_api "repos/$organization/$repository/immutable-releases" 2>/dev/null || true
+  )"
+  if ! jq -e '.enabled == true' <<<"$immutable" >/dev/null 2>&1 &&
+    [[ "$mode" == "--apply" ]]; then
+    github_api --method PUT \
+      "repos/$organization/$repository/immutable-releases" >/dev/null || {
+      echo "failed to enable immutable releases on $organization/$repository" >&2
+      return 1
+    }
+    immutable="$(
+      github_api "repos/$organization/$repository/immutable-releases" 2>/dev/null || true
+    )"
+  fi
+
+  jq -e '.enabled == true' <<<"$immutable" >/dev/null || {
+    echo "$organization/$repository immutable releases are not enabled" >&2
+    return 1
+  }
+}
+
+assert_ruleset_rejected() {
+  local message="$1"
+
+  if verify_release_ruleset >/dev/null 2>&1; then
+    echo "$message unexpectedly passed" >&2
+    exit 1
+  fi
+}
+
+self_test_release_ruleset() {
+  local valid=""
+  local invalid=""
+
+  valid="$(jq -cn --arg name "$release_ruleset_name" \
+    --argjson repositories "$repositories_json" '{
+      id: 123,
+      name: $name,
+      target: "tag",
+      enforcement: "active",
+      bypass_actors: [],
+      conditions: {
+        repository_name: {include: $repositories, exclude: []},
+        ref_name: {include: ["~ALL"], exclude: []}
+      },
+      rules: [{type: "deletion"}, {type: "update"}]
+    }')"
+  mock_ruleset_list='[{"id":123,"name":"public-release-tags"}]'
+  mock_ruleset_detail="$valid"
+  mock_immutable_before='{"enabled":true,"enforced_by_owner":true}'
+  mock_immutable_after='{"enabled":true}'
+  mock_immutable_puts=0
+  mock_immutable_put_fails=false
+  github_api() {
+    if [[ "$*" == *"orgs/$organization/rulesets/123"* ]]; then
+      printf '%s\n' "$mock_ruleset_detail"
+    elif [[ "$*" == *"orgs/$organization/rulesets"* ]]; then
+      printf '%s\n' "$mock_ruleset_list"
+    elif [[ "$*" == *"/immutable-releases"* && "$*" == *"--method PUT"* ]]; then
+      [[ "$mock_immutable_put_fails" == false ]] || return 1
+      ((mock_immutable_puts += 1))
+    elif [[ "$*" == *"/immutable-releases"* ]]; then
+      if [[ "$mock_immutable_puts" -gt 0 ]]; then
+        printf '%s\n' "$mock_immutable_after"
+      else
+        printf '%s\n' "$mock_immutable_before"
+      fi
+    else
+      echo "unexpected mock API call: $*" >&2
+      return 1
+    fi
+  }
+
+  verify_release_ruleset
+  mock_ruleset_list='[{"id":123,"name":"public-release-tags"},{"id":456,"name":"public-release-tags"}]'
+  assert_ruleset_rejected "duplicate ruleset fixture"
+  mock_ruleset_list='[{"id":123,"name":"public-release-tags"}]'
+  for invalid in \
+    "$(jq '.rules += [{type: "creation"}]' <<<"$valid")" \
+    "$(jq '.bypass_actors = [{actor_id: 1}]' <<<"$valid")" \
+    "$(jq '.conditions.repository_name.include = ["homelab"]' <<<"$valid")" \
+    "$(jq '.conditions.ref_name.include = ["refs/tags/v*"]' <<<"$valid")" \
+    "$(jq '.enforcement = "evaluate"' <<<"$valid")"; do
+    mock_ruleset_detail="$invalid"
+    assert_ruleset_rejected "invalid ruleset fixture"
+  done
+
+  mode=--check
+  mock_ruleset_detail="$valid"
+  reconcile_immutable_releases homelab
+  [[ "$mock_immutable_puts" -eq 0 ]]
+  mock_immutable_before='{"enabled":false}'
+  if reconcile_immutable_releases homelab >/dev/null 2>&1; then
+    echo "disabled immutable-release fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  mock_immutable_before=''
+  if reconcile_immutable_releases homelab >/dev/null 2>&1; then
+    echo "missing immutable-release fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  mode=--apply
+  mock_immutable_before='{"enabled":false}'
+  reconcile_immutable_releases homelab
+  [[ "$mock_immutable_puts" -eq 1 ]]
+  mock_immutable_before='{"enabled":false}'
+  mock_immutable_puts=0
+  mock_immutable_put_fails=true
+  if reconcile_immutable_releases homelab >/dev/null 2>&1; then
+    echo "failed immutable-release PUT unexpectedly passed" >&2
+    exit 1
+  fi
+}
+
+if [[ "$mode" == "--self-test" ]]; then
+  self_test_release_ruleset
+  echo "public control-plane security reconciler self-test passed"
+  exit 0
+fi
+
+if [[ "$mode" != "--rollback" ]]; then
+  verify_release_ruleset
+fi
 
 configurations="$(
   github_api --method GET \
@@ -348,6 +513,7 @@ verify_configuration_scope "$configuration_id"
 
 for repository in "${repositories[@]}"; do
   reconcile_actions "$repository"
+  reconcile_immutable_releases "$repository"
   wait_for_effective_security "$repository"
 
   open_alert_count="$(
@@ -362,4 +528,4 @@ for repository in "${repositories[@]}"; do
   fi
 done
 
-echo "$organization public control-plane repositories use $configuration_name ($configuration_id); Actions are restricted; no open Dependabot alerts"
+echo "$organization public control-plane repositories use $configuration_name ($configuration_id); release tags are protected and future releases are immutable; Actions are restricted; no open Dependabot alerts"
