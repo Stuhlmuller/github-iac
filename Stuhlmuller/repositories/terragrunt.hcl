@@ -85,6 +85,34 @@ inputs = {
     }
     "homelab" = {
       visibility = "public"
+      environments = [
+        {
+          name                = "homelab-plan"
+          can_admins_bypass   = false
+          prevent_self_review = false
+          reviewers = {
+            users = [57728706]
+            teams = []
+          }
+          deployment_branch_policy = {
+            protected_branches     = true
+            custom_branch_policies = false
+          }
+        },
+        {
+          name                = "homelab-production"
+          can_admins_bypass   = false
+          prevent_self_review = false
+          reviewers = {
+            users = [57728706]
+            teams = []
+          }
+          deployment_branch_policy = {
+            protected_branches     = true
+            custom_branch_policies = false
+          }
+        }
+      ]
       ruleset = [
         {
           name                       = "main"
@@ -95,17 +123,7 @@ inputs = {
           require_signed_commits     = true
           update                     = false
           require_code_owner_reviews = false
-          bypass_actors = [
-            {
-              actor_type  = "OrganizationAdmin"
-              bypass_mode = "pull_request"
-            },
-            {
-              actor_id    = 2145192
-              actor_type  = "Integration"
-              bypass_mode = "pull_request"
-            }
-          ]
+          bypass_actors              = []
           pull_requests = [
             {
               allowed_merge_methods           = ["squash"]

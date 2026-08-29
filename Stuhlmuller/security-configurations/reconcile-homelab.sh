@@ -7,6 +7,7 @@ repository="homelab"
 configuration_name="Homelab Protection"
 rollback_configuration_name="Public Protection"
 api_version="2026-03-10"
+actions_retention_days=1
 
 case "$mode" in
   --apply | --check | --rollback) ;;
@@ -51,7 +52,7 @@ desired_configuration="$(jq -n \
     secret_scanning_validity_checks: "enabled",
     secret_scanning_extended_metadata: "enabled",
     secret_scanning_generic_secrets: "not_set",
-    private_vulnerability_reporting: "disabled",
+    private_vulnerability_reporting: "enabled",
     enforcement: "enforced"
   }'
 )"
@@ -187,6 +188,15 @@ jq -e --argjson desired "$desired_configuration" '
   and (.configuration as $actual
     | all($desired | to_entries[]; $actual[.key] == .value))
 ' <<<"$live_configuration" >/dev/null
+
+if [[ "$mode" == "--apply" ]]; then
+  github_api --method PUT \
+    "repos/$organization/$repository/actions/permissions/artifact-and-log-retention" \
+    -F days="$actions_retention_days" >/dev/null
+fi
+github_api \
+  "repos/$organization/$repository/actions/permissions/artifact-and-log-retention" |
+  jq -e --argjson days "$actions_retention_days" '.days == $days' >/dev/null
 
 github_api --method GET \
   "orgs/$organization/code-security/configurations/$configuration_id/repositories" \

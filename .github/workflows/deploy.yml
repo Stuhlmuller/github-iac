@@ -58,6 +58,9 @@ jobs:
     outputs:
       plan_key: ${{ steps.store.outputs.plan_key }}
       plan_sha256: ${{ steps.store.outputs.plan_sha256 }}
+      plan_version_id: ${{ steps.store.outputs.plan_version_id }}
+      plan_before_sha256: ${{ steps.verify.outputs.plan_before_sha256 }}
+      plan_after_sha256: ${{ steps.verify.outputs.plan_after_sha256 }}
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
@@ -85,31 +88,9 @@ jobs:
           role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
           role-session-name: github-iac-plan
 
-      - name: Isolate homelab ruleset state
+      - name: Verify reviewed state migration
         shell: bash
-        working-directory: ${{ env.WORKING_DIR }}
-        run: |
-          set -euo pipefail
-          old='github_repository_ruleset.this["homelab.main"]'
-          new='github_repository_ruleset.existing["homelab.main"]'
-          if terragrunt --log-disable state show -no-color "$new" > ruleset-state.txt 2>/dev/null; then
-            if terragrunt --log-disable state show "$old" >/dev/null 2>&1; then
-              echo "error: both homelab ruleset state addresses exist" >&2
-              exit 1
-            fi
-            grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"?14700233"?$' ruleset-state.txt
-          else
-            terragrunt --log-disable state show -no-color "$old" > ruleset-state.txt
-            grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"?14700233"?$' ruleset-state.txt
-            terragrunt --log-disable state mv -dry-run "$old" "$new"
-            terragrunt --log-disable state mv -lock-timeout=5m "$old" "$new"
-            if terragrunt --log-disable state show "$old" >/dev/null 2>&1; then
-              echo "error: old homelab ruleset state address still exists" >&2
-              exit 1
-            fi
-            terragrunt --log-disable state show -no-color "$new" > ruleset-state.txt
-            grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"?14700233"?$' ruleset-state.txt
-          fi
+        run: bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --check
 
       - name: Create read-only GitHub App token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -136,26 +117,32 @@ jobs:
             -target='github_repository_ruleset.existing["homelab.main"]'
 
       - name: Verify saved plan scope
+        id: verify
         shell: bash
         working-directory: ${{ env.WORKING_DIR }}
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PLAN_FILE: ${{ runner.temp }}/homelab-main.tfplan
         run: |
           set -euo pipefail
+          policy_file="$GITHUB_WORKSPACE/Stuhlmuller/repositories/homelab-ruleset-policy.jq"
           terragrunt show -json "$PLAN_FILE" > plan.json
-          jq -e '
-            [.resource_changes[] | select(.mode == "managed")] as $changes
-            | ($changes | length == 1)
-            and all($changes[];
-              if .address == "github_repository_ruleset.existing[\"homelab.main\"]" then
-                (.change.actions == ["no-op"] or .change.actions == ["update"])
-                and ((.change.before.id | tostring) == "14700233")
-                and ((.change.importing // null) == null)
-                and ((.previous_address // null) == null)
-              else false
-              end)
-            and any($changes[]; .address == "github_repository_ruleset.existing[\"homelab.main\"]")
-          ' plan.json
+          jq -e -S -c --arg source plan --arg phase before --arg expect any \
+            -f "$policy_file" plan.json > plan-before.json
+          jq -e -S -c --arg source plan --arg phase after --arg expect desired \
+            -f "$policy_file" plan.json > plan-after.json
+          gh api repos/Stuhlmuller/homelab/rulesets/14700233 > live-ruleset.json
+          jq -e -S -c --arg source live --arg phase before --arg expect any \
+            -f "$policy_file" live-ruleset.json > live-before.json
+
+          plan_before_sha256="$(sha256sum plan-before.json | awk '{print $1}')"
+          plan_after_sha256="$(sha256sum plan-after.json | awk '{print $1}')"
+          live_before_sha256="$(sha256sum live-before.json | awk '{print $1}')"
+          test "$live_before_sha256" = "$plan_before_sha256"
+          {
+            echo "plan_before_sha256=$plan_before_sha256"
+            echo "plan_after_sha256=$plan_after_sha256"
+          } >> "$GITHUB_OUTPUT"
           terragrunt show -no-color "$PLAN_FILE"
 
       - name: Store encrypted saved plan
@@ -172,9 +159,15 @@ jobs:
             --only-show-errors \
             --sse aws:kms \
             --sse-kms-key-id alias/homelab-opentofu \
-            --metadata "commit=$EXPECTED_SHA,run-id=$GITHUB_RUN_ID,sha256=$plan_sha256"
-          echo "plan_key=$plan_key" >> "$GITHUB_OUTPUT"
-          echo "plan_sha256=$plan_sha256" >> "$GITHUB_OUTPUT"
+            --metadata "commit=$EXPECTED_SHA,run-id=$GITHUB_RUN_ID,sha256=$plan_sha256,before-sha256=${{ steps.verify.outputs.plan_before_sha256 }},after-sha256=${{ steps.verify.outputs.plan_after_sha256 }}"
+          plan_version_id="$(aws s3api head-object --bucket "$PLAN_BUCKET" --key "$plan_key" --query VersionId --output text)"
+          test -n "$plan_version_id"
+          test "$plan_version_id" != None
+          {
+            echo "plan_key=$plan_key"
+            echo "plan_sha256=$plan_sha256"
+            echo "plan_version_id=$plan_version_id"
+          } >> "$GITHUB_OUTPUT"
 
   apply:
     runs-on: ubuntu-latest
@@ -186,6 +179,9 @@ jobs:
     env:
       PLAN_KEY: ${{ needs.plan.outputs.plan_key }}
       PLAN_SHA256: ${{ needs.plan.outputs.plan_sha256 }}
+      PLAN_VERSION_ID: ${{ needs.plan.outputs.plan_version_id }}
+      PLAN_BEFORE_SHA256: ${{ needs.plan.outputs.plan_before_sha256 }}
+      PLAN_AFTER_SHA256: ${{ needs.plan.outputs.plan_after_sha256 }}
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
@@ -223,15 +219,35 @@ jobs:
           expected_key="IaC/github-iac/saved-plans/$EXPECTED_SHA/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/plan.out"
           test "$PLAN_KEY" = "$expected_key"
           [[ "$PLAN_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          aws s3api head-object --bucket "$PLAN_BUCKET" --key "$PLAN_KEY" > plan-head.json
-          jq -e --arg commit "$EXPECTED_SHA" --arg sha256 "$PLAN_SHA256" '
+          [[ "$PLAN_BEFORE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$PLAN_AFTER_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test -n "$PLAN_VERSION_ID"
+          test "$PLAN_VERSION_ID" != None
+          aws s3api head-object \
+            --bucket "$PLAN_BUCKET" \
+            --key "$PLAN_KEY" \
+            --version-id "$PLAN_VERSION_ID" > plan-head.json
+          jq -e \
+            --arg commit "$EXPECTED_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg sha256 "$PLAN_SHA256" \
+            --arg before_sha256 "$PLAN_BEFORE_SHA256" \
+            --arg after_sha256 "$PLAN_AFTER_SHA256" \
+            --arg version_id "$PLAN_VERSION_ID" '
             .ServerSideEncryption == "aws:kms"
+            and .VersionId == $version_id
             and .Metadata.commit == $commit
+            and .Metadata["run-id"] == $run_id
             and .Metadata.sha256 == $sha256
+            and .Metadata["before-sha256"] == $before_sha256
+            and .Metadata["after-sha256"] == $after_sha256
           ' plan-head.json
-          aws s3 cp "s3://$PLAN_BUCKET/$PLAN_KEY" "$PLAN_FILE" --only-show-errors
+          aws s3api get-object \
+            --bucket "$PLAN_BUCKET" \
+            --key "$PLAN_KEY" \
+            --version-id "$PLAN_VERSION_ID" \
+            "$PLAN_FILE" >/dev/null
           echo "$PLAN_SHA256  $PLAN_FILE" | sha256sum --check -
-          aws s3 rm "s3://$PLAN_BUCKET/$PLAN_KEY" --only-show-errors
 
       - name: Create scoped GitHub App token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
@@ -256,6 +272,21 @@ jobs:
           set -euo pipefail
           git -C "$GITHUB_WORKSPACE" fetch --no-tags --depth=1 origin main
           test "$(git -C "$GITHUB_WORKSPACE" rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          bash "$GITHUB_WORKSPACE/Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh" --check
+
+          policy_file="$GITHUB_WORKSPACE/Stuhlmuller/repositories/homelab-ruleset-policy.jq"
+          terragrunt show -json "$PLAN_FILE" > plan.json
+          jq -e -S -c --arg source plan --arg phase before --arg expect any \
+            -f "$policy_file" plan.json > plan-before.json
+          jq -e -S -c --arg source plan --arg phase after --arg expect desired \
+            -f "$policy_file" plan.json > plan-after.json
+          test "$(sha256sum plan-before.json | awk '{print $1}')" = "$PLAN_BEFORE_SHA256"
+          test "$(sha256sum plan-after.json | awk '{print $1}')" = "$PLAN_AFTER_SHA256"
+
+          gh api repos/Stuhlmuller/homelab/rulesets/14700233 > live-before.json
+          jq -e -S -c --arg source live --arg phase before --arg expect any \
+            -f "$policy_file" live-before.json > live-before-normalized.json
+          test "$(sha256sum live-before-normalized.json | awk '{print $1}')" = "$PLAN_BEFORE_SHA256"
           terragrunt apply "$PLAN_FILE"
 
       - name: Verify live ruleset
@@ -264,56 +295,25 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
+          policy_file="$GITHUB_WORKSPACE/Stuhlmuller/repositories/homelab-ruleset-policy.jq"
           gh api repos/Stuhlmuller/homelab/rulesets/14700233 > ruleset.json
-          jq -e '
-            .id == 14700233
-            and .name == "main"
-            and .target == "branch"
-            and .enforcement == "active"
-            and .conditions == {"ref_name": {"exclude": [], "include": ["~DEFAULT_BRANCH"]}}
-            and ([.bypass_actors[] | {actor_id, actor_type, bypass_mode}] == [
-              {"actor_id": null, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"},
-              {"actor_id": 2145192, "actor_type": "Integration", "bypass_mode": "pull_request"}
-            ])
-            and ([.rules[].type] | sort == [
-              "creation", "deletion", "non_fast_forward", "pull_request",
-              "required_linear_history", "required_signatures", "required_status_checks"
-            ])
-            and ([.rules[] | select(.type == "required_status_checks")
-              | .parameters.required_status_checks[] | {key: .context, value: .integration_id}] | from_entries == {
-                "policy-bot: main": 3280987,
-                "Lint": 15368,
-                "repo": 15368,
-                "Analyze (python)": 15368,
-                "analyze-actions": 15368,
-                "release-dry-run": 15368,
-                "Terragrunt Gate": 15368
-              })
-            and ([.rules[] | select(.type == "required_status_checks") | .parameters
-              | {strict_required_status_checks_policy, do_not_enforce_on_create}] == [{
-                "strict_required_status_checks_policy": true,
-                "do_not_enforce_on_create": false
-              }])
-            and ([.rules[] | select(.type == "pull_request")
-              | .parameters | {
-                required_approving_review_count,
-                dismiss_stale_reviews_on_push,
-                required_reviewers,
-                require_code_owner_review,
-                dismissal_restriction,
-                require_last_push_approval,
-                required_review_thread_resolution,
-                require_extra_approval_for_unattributed_changes,
-                allowed_merge_methods
-              }] == [{
-                "required_approving_review_count": 0,
-                "dismiss_stale_reviews_on_push": false,
-                "required_reviewers": [],
-                "require_code_owner_review": false,
-                "dismissal_restriction": {"enabled": false, "allowed_actors": []},
-                "require_last_push_approval": false,
-                "required_review_thread_resolution": false,
-                "require_extra_approval_for_unattributed_changes": false,
-                "allowed_merge_methods": ["squash"]
-              }])
-          ' ruleset.json
+          jq -e -S -c --arg source live --arg phase after --arg expect desired \
+            -f "$policy_file" ruleset.json > live-after.json
+          test "$(sha256sum live-after.json | awk '{print $1}')" = "$PLAN_AFTER_SHA256"
+
+      - name: Delete verified saved plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws s3api delete-object \
+            --bucket "$PLAN_BUCKET" \
+            --key "$PLAN_KEY" \
+            --version-id "$PLAN_VERSION_ID" >/dev/null
+          aws s3api list-object-versions \
+            --bucket "$PLAN_BUCKET" \
+            --prefix "$PLAN_KEY" \
+            > plan-versions.json
+          jq -e --arg key "$PLAN_KEY" '
+            ([.Versions[]? | select(.Key == $key)] | length) == 0
+            and ([.DeleteMarkers[]? | select(.Key == $key)] | length) == 0
+          ' plan-versions.json >/dev/null

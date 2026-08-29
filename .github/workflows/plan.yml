@@ -37,3 +37,13 @@ jobs:
           tofu fmt -check -recursive
           tofu -chdir=modules/github_repositories init -backend=false -input=false
           tofu -chdir=modules/github_repositories validate
+
+      - name: Check deployment guardrails
+        run: |
+          bash -n Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh
+          jq -n -e --arg source self-test --arg phase after --arg expect desired \
+            -f Stuhlmuller/repositories/homelab-ruleset-policy.jq >/dev/null
+          if git grep -F 2145192 -- Stuhlmuller .github/workflows/deploy.yml; then
+            echo "Renovate must not bypass repository rulesets" >&2
+            exit 1
+          fi

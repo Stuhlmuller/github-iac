@@ -32,10 +32,11 @@ bash Stuhlmuller/security-configurations/reconcile-homelab.sh --apply
 ```
 
 The configuration keeps secret scanning and push protection enabled, enables
-the dependency graph and Dependabot alerts, and leaves automatic Dependabot
+private vulnerability reporting, the dependency graph, and Dependabot alerts,
+sets Actions artifact and log retention to one day, and leaves automatic Dependabot
 updates disabled because Renovate owns update pull requests. The script requires
 an authenticated organization owner or security manager with organization
-Administration write plus repository Administration read, Dependabot alerts
+Administration write plus repository Administration write, Dependabot alerts
 read, and Contents read permissions. A classic token needs `write:org` and
 `repo`. The script refuses duplicate configurations or attachments outside
 `homelab`, verifies both alert and SBOM APIs, prints every open alert, and exits
@@ -53,6 +54,18 @@ bash Stuhlmuller/security-configurations/reconcile-homelab.sh --rollback
 
 The `Terragrunt Deploy` workflow accepts only the exact 40-character commit SHA currently at `main`.
 
+After the migration script is reviewed and merged, move ruleset `14700233` to
+its isolated state address once. The script is exact and idempotent; `--check`
+must pass before the targeted workflow can plan:
+
+```bash
+export AWS_PROFILE="<administrator-profile>"
+bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --apply
+bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --check
+```
+
+The workflow never moves state. Dispatch it only after that separate migration:
+
 1. Dispatch `.github/workflows/deploy.yml` on `main` with `expected_sha` set to the reviewed commit.
 2. Approve `github-iac-plan`.
 3. Review the authenticated, scope-checked plan.
@@ -63,7 +76,14 @@ gh workflow run deploy.yml --repo Stuhlmuller/github-iac --ref main \
   -f expected_sha=<40-character-main-sha>
 ```
 
-The workflow targets only the isolated homelab ruleset. It stores the binary plan encrypted in the private state bucket, verifies its SHA-256 digest before apply, rejects a stale `main`, verifies live state after apply, and deletes the saved plan immediately after its verified download. A rejected or cancelled run intentionally retains its plan for investigation; delete that run's exact S3 object after review.
+The workflow targets only the isolated homelab ruleset. It hashes canonical
+before and after policy state, binds the before hash to GitHub immediately
+before apply, and requires the after hash to contain exactly seven checks,
+strict mode, pull-request/signature/history protections, exact branch
+conditions, and no bypass actors. The
+encrypted, versioned saved plan is deleted only after apply and exact live
+verification. Rejected, cancelled, or failed runs retain their exact plan
+version for investigation and explicit cleanup.
 
 Required GitHub configuration:
 
@@ -108,41 +128,48 @@ export GITHUB_TOKEN="$(gh auth token)"
 cd Stuhlmuller/repositories
 terragrunt --log-disable init -reconfigure
 
-if ! terragrunt --log-disable state show \
-  'github_repository_environment.this["github-iac.github-iac-plan"]' >/dev/null 2>&1; then
-  terragrunt --log-disable import \
-    'github_repository_environment.this["github-iac.github-iac-plan"]' \
-    github-iac:github-iac-plan
-fi
-if ! terragrunt --log-disable state show \
-  'github_repository_environment.this["github-iac.github-iac-production"]' >/dev/null 2>&1; then
-  terragrunt --log-disable import \
-    'github_repository_environment.this["github-iac.github-iac-production"]' \
-    github-iac:github-iac-production
-fi
+environment_targets=(
+  github-iac:github-iac-plan
+  github-iac:github-iac-production
+  homelab:homelab-plan
+  homelab:homelab-production
+)
+plan_targets=()
+for target in "${environment_targets[@]}"; do
+  repository="${target%%:*}"
+  environment="${target#*:}"
+  address="github_repository_environment.this[\"$repository.$environment\"]"
+  if ! terragrunt --log-disable state show "$address" >/dev/null 2>&1; then
+    terragrunt --log-disable import "$address" "$target"
+  fi
+  plan_targets+=("-target=$address")
+done
 
 environment_plan_dir="$(mktemp -d "${TMPDIR:-/tmp}/github-iac-environments.XXXXXX")"
 environment_plan="$environment_plan_dir/plan.out"
 environment_plan_json="$environment_plan_dir/plan.json"
 trap 'test ! -d "$environment_plan_dir" || rm -rf -- "$environment_plan_dir"' EXIT
-terragrunt --log-disable plan -input=false \
-  -target='github_repository_environment.this["github-iac.github-iac-plan"]' \
-  -target='github_repository_environment.this["github-iac.github-iac-production"]' \
+terragrunt --log-disable plan -input=false "${plan_targets[@]}" \
   -out="$environment_plan"
 terragrunt --log-disable show -json "$environment_plan" > "$environment_plan_json"
 jq -e '
   [.resource_changes[] | select(.mode == "managed")] as $changes
   | ($changes | map(.address) | sort) == ([
       "github_repository_environment.this[\"github-iac.github-iac-plan\"]",
-      "github_repository_environment.this[\"github-iac.github-iac-production\"]"
+      "github_repository_environment.this[\"github-iac.github-iac-production\"]",
+      "github_repository_environment.this[\"homelab.homelab-plan\"]",
+      "github_repository_environment.this[\"homelab.homelab-production\"]"
     ] | sort)
   and all($changes[];
     (.change.actions == ["no-op"] or .change.actions == ["update"])
-    and .change.before.repository == "github-iac"
-    and .change.after.repository == "github-iac"
     and .change.before.environment == .change.after.environment
-    and (.change.after.environment == "github-iac-plan" or
-         .change.after.environment == "github-iac-production")
+    and ({
+      "github-iac-plan": "github-iac",
+      "github-iac-production": "github-iac",
+      "homelab-plan": "homelab",
+      "homelab-production": "homelab"
+    }[.change.after.environment] == .change.after.repository)
+    and .change.before.repository == .change.after.repository
     and .change.after.can_admins_bypass == false
     and .change.after.prevent_self_review == false
     and (.change.after.reviewers | length) == 1
@@ -161,8 +188,10 @@ read -r environment_confirmation
 test "$environment_confirmation" = apply
 terragrunt --log-disable apply "$environment_plan"
 
-for environment in github-iac-plan github-iac-production; do
-  gh api "repos/Stuhlmuller/github-iac/environments/$environment" |
+for target in "${environment_targets[@]}"; do
+  repository="${target%%:*}"
+  environment="${target#*:}"
+  gh api "repos/Stuhlmuller/$repository/environments/$environment" |
     jq -e --arg environment "$environment" '
       .name == $environment
       and .can_admins_bypass == false
@@ -185,9 +214,13 @@ for environment in github-iac-plan github-iac-production; do
 done
 ```
 
-The commands verify both state addresses, the exact reviewer, protected-branch
-restriction, and disabled administrator bypass. The ruleset-only deployment
-workflow does not reconcile these two environments.
+The commands verify all four state addresses, the exact reviewer,
+protected-branch restriction, and disabled administrator bypass. The
+ruleset-only deployment workflow does not reconcile environments.
+
+`prevent_self_review` remains false because user `57728706` is the only owner
+and deployment reviewer. Enable it after adding a second qualified reviewer;
+administrator bypass remains disabled meanwhile.
 
 Do not dispatch while either environment is absent or while the repository secret remains; GitHub would otherwise auto-create an unprotected environment or expose the fallback repository secret.
 
