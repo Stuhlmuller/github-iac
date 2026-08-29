@@ -58,14 +58,19 @@ bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --rol
 
 The `Terragrunt Deploy` workflow accepts only the exact 40-character commit SHA currently at `main`.
 
-After the migration script is reviewed and merged, move ruleset `14700233` to
-its isolated state address once. The script is exact and idempotent; `--check`
-must pass before the targeted workflow can plan:
+After the migration script is reviewed and merged, move all 11 public rulesets
+to their isolated state addresses once. The script is exact and idempotent;
+`--check` must pass before the targeted workflow can plan:
+
+`Stuhlmuller/repositories/public-rulesets.json` is the shared repository and
+ruleset-ID inventory used by configuration, migration, and reconciliation.
+Wait for every GitHub-IaC plan or deployment to finish, then keep them paused
+until migration and `--check` both complete.
 
 ```bash
 export AWS_PROFILE="<administrator-profile>"
-bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --apply
-bash Stuhlmuller/repositories/migrate-homelab-ruleset-state.sh --check
+bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --apply
+bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --check
 ```
 
 After the migration, run the repository-owned all-public-ruleset reconciler
@@ -264,4 +269,4 @@ Do not run an untargeted organization-wide apply to deliver a homelab ruleset ch
 
 ## Rollback
 
-Create a forward commit correcting only the incompatible rule while retaining strict mode, all other protections, the isolated `github_repository_ruleset.existing` state address, and the protected workflow. A full code revert requires a separately reviewed reverse state move after both addresses and ruleset ID `14700233` are verified. Never repair live GitHub state manually.
+Create a forward commit correcting only the incompatible rule while retaining strict mode, all other protections, the isolated `github_repository_ruleset.existing` state addresses, and the protected workflow. Full code reverts are unsupported because they would require a separate reviewed reverse state migration for all 11 address and ruleset-ID pairs. Never repair live GitHub state manually.

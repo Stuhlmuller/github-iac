@@ -87,22 +87,13 @@ locals {
     ]) : "${environment.repository}.${environment.name}" => environment
   }
 
-  imported_repository_rulesets = {
-    for key, ruleset in local.repository_rulesets_by_key :
-    key => {
-      repository = ruleset.repository
-      ruleset_id = var.repository_ruleset_imports[key].ruleset_id
-    }
-    if key != "homelab.main" && try(var.repository_ruleset_imports[key], null) != null
-  }
-
   imported_existing_repository_rulesets = {
     for key, ruleset in local.repository_rulesets_by_key :
     key => {
       repository = ruleset.repository
       ruleset_id = var.repository_ruleset_imports[key].ruleset_id
     }
-    if key == "homelab.main" && try(var.repository_ruleset_imports[key], null) != null
+    if try(var.repository_ruleset_imports[key], null) != null
   }
 
   imported_branch_defaults = {
@@ -171,7 +162,7 @@ resource "github_repository" "this" {
 resource "github_repository_ruleset" "this" {
   for_each = {
     for key, ruleset in local.repository_rulesets_by_key : key => ruleset
-    if key != "homelab.main"
+    if try(var.repository_ruleset_imports[key], null) == null
   }
 
   name        = each.value.name
@@ -239,15 +230,14 @@ resource "github_repository_ruleset" "this" {
     }
   }
 
-  depends_on = [github_repository.this]
 }
 
-# The homelab ruleset is intentionally independent from the repository resource
-# collection so its protected workflow cannot plan unrelated repository drift.
+# Imported rulesets are intentionally independent from the repository resource
+# collection so targeted reconciliation cannot plan unrelated repository drift.
 resource "github_repository_ruleset" "existing" {
   for_each = {
     for key, ruleset in local.repository_rulesets_by_key : key => ruleset
-    if key == "homelab.main"
+    if try(var.repository_ruleset_imports[key], null) != null
   }
 
   name        = each.value.name
@@ -317,8 +307,58 @@ resource "github_repository_ruleset" "existing" {
 }
 
 moved {
+  from = github_repository_ruleset.this[".github.main"]
+  to   = github_repository_ruleset.existing[".github.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["ai-pr-reviewer.main"]
+  to   = github_repository_ruleset.existing["ai-pr-reviewer.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["github-iac.main"]
+  to   = github_repository_ruleset.existing["github-iac.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["grafana-iac.main"]
+  to   = github_repository_ruleset.existing["grafana-iac.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["hivemind.main"]
+  to   = github_repository_ruleset.existing["hivemind.main"]
+}
+
+moved {
   from = github_repository_ruleset.this["homelab.main"]
   to   = github_repository_ruleset.existing["homelab.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["personal-website.main"]
+  to   = github_repository_ruleset.existing["personal-website.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["policies.main"]
+  to   = github_repository_ruleset.existing["policies.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["renovate.main"]
+  to   = github_repository_ruleset.existing["renovate.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["terragrunt-catalog.main"]
+  to   = github_repository_ruleset.existing["terragrunt-catalog.main"]
+}
+
+moved {
+  from = github_repository_ruleset.this["workflows.main"]
+  to   = github_repository_ruleset.existing["workflows.main"]
 }
 
 resource "github_repository_environment" "this" {
@@ -413,12 +453,6 @@ resource "github_organization_ruleset" "this" {
       }
     }
   }
-}
-
-import {
-  for_each = local.imported_repository_rulesets
-  to       = github_repository_ruleset.this[each.key]
-  id       = format("%s:%d", each.value.repository, each.value.ruleset_id)
 }
 
 import {

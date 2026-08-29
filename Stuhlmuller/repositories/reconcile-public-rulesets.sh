@@ -3,21 +3,9 @@ set -euo pipefail
 
 mode="${1:---check}"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+manifest_file="$script_dir/public-rulesets.json"
 homelab_address='github_repository_ruleset.existing["homelab.main"]'
-github_iac_address='github_repository_ruleset.this["github-iac.main"]'
-rulesets=(
-  '.github|11493159|github_repository_ruleset.this[".github.main"]'
-  'ai-pr-reviewer|14700811|github_repository_ruleset.this["ai-pr-reviewer.main"]'
-  'github-iac|5660587|github_repository_ruleset.this["github-iac.main"]'
-  'grafana-iac|8218990|github_repository_ruleset.this["grafana-iac.main"]'
-  'hivemind|17347203|github_repository_ruleset.this["hivemind.main"]'
-  'homelab|14700233|github_repository_ruleset.existing["homelab.main"]'
-  'personal-website|14702864|github_repository_ruleset.this["personal-website.main"]'
-  'policies|9041681|github_repository_ruleset.this["policies.main"]'
-  'renovate|14702863|github_repository_ruleset.this["renovate.main"]'
-  'terragrunt-catalog|7928987|github_repository_ruleset.this["terragrunt-catalog.main"]'
-  'workflows|14702865|github_repository_ruleset.this["workflows.main"]'
-)
+github_iac_address='github_repository_ruleset.existing["github-iac.main"]'
 
 case "$mode" in
   --apply | --check | --self-test) ;;
@@ -31,6 +19,22 @@ command -v jq >/dev/null || {
   echo "jq is required" >&2
   exit 1
 }
+jq -e '
+  type == "array"
+  and length == 11
+  and ([.[].repository] | unique | length) == length
+  and ([.[].ruleset_id] | unique | length) == length
+  and all(.[];
+    (.repository | type) == "string"
+    and (.repository | test("^[A-Za-z0-9._-]+$"))
+    and (.ruleset_id | type) == "number"
+    and (.ruleset_id | floor) == .ruleset_id
+    and .ruleset_id > 0)
+' "$manifest_file" >/dev/null
+rulesets=()
+while IFS='|' read -r repository ruleset_id; do
+  rulesets+=("$repository|$ruleset_id|github_repository_ruleset.existing[\"$repository.main\"]")
+done < <(jq -r '.[] | [.repository, (.ruleset_id | tostring)] | join("|")' "$manifest_file")
 rulesets_json="$(jq -cn --args '
   $ARGS.positional
   | map(split("|") as $parts | {
@@ -53,8 +57,8 @@ if [[ "$mode" == "--self-test" ]]; then
             type: "github_repository_ruleset",
             change: {
               actions: ["no-op"],
-              before: {repository, ruleset_id, id: $id, bypass_actors: []},
-              after: {repository, ruleset_id, id: $id, bypass_actors: []}
+              before: {repository, ruleset_id, id: $id, name: "main", target: "branch", enforcement: "active", bypass_actors: []},
+              after: {repository, ruleset_id, id: $id, name: "main", target: "branch", enforcement: "active", bypass_actors: []}
             }
           }
       ]
@@ -65,6 +69,39 @@ if [[ "$mode" == "--self-test" ]]; then
     --arg github_iac "$github_iac_address" \
     --argjson expected_metadata "$rulesets_json" \
     -f "$plan_policy_file" <<<"$plan_fixture" >/dev/null
+  update_fixture="$(jq '
+    .resource_changes[0].change.actions = ["update"]
+    | .resource_changes[0].change.before.bypass_actors = [{
+        actor_id: 2145192,
+        actor_type: "Integration",
+        bypass_mode: "pull_request"
+      }]
+  ' <<<"$plan_fixture")"
+  jq -e \
+    --arg homelab "$homelab_address" \
+    --arg github_iac "$github_iac_address" \
+    --argjson expected_metadata "$rulesets_json" \
+    -f "$plan_policy_file" <<<"$update_fixture" >/dev/null
+  if jq '(.resource_changes[]
+      | select(.address == "github_repository_ruleset.existing[\".github.main\"]")
+      | .change.before.bypass_actors[0].actor_id) = 1' <<<"$update_fixture" |
+    jq -e \
+      --arg homelab "$homelab_address" \
+      --arg github_iac "$github_iac_address" \
+      --argjson expected_metadata "$rulesets_json" \
+      -f "$plan_policy_file" >/dev/null; then
+    echo "wrong bypass actor fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  if jq '.resource_changes[0].change.after.enforcement = "evaluate"' <<<"$update_fixture" |
+    jq -e \
+      --arg homelab "$homelab_address" \
+      --arg github_iac "$github_iac_address" \
+      --argjson expected_metadata "$rulesets_json" \
+      -f "$plan_policy_file" >/dev/null; then
+    echo "tampered bypass-removal fixture unexpectedly passed" >&2
+    exit 1
+  fi
   if jq '.resource_changes[0].change.after.ruleset_id = -1' <<<"$plan_fixture" |
     jq -e \
       --arg homelab "$homelab_address" \
@@ -72,6 +109,20 @@ if [[ "$mode" == "--self-test" ]]; then
       --argjson expected_metadata "$rulesets_json" \
       -f "$plan_policy_file" >/dev/null; then
     echo "ruleset identity negative fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  if jq '.resource_changes += [{
+      address: "github_repository.this[\"unrelated\"]",
+      mode: "managed",
+      type: "github_repository",
+      change: {actions: ["no-op"], before: {}, after: {}}
+    }]' <<<"$plan_fixture" |
+    jq -e \
+      --arg homelab "$homelab_address" \
+      --arg github_iac "$github_iac_address" \
+      --argjson expected_metadata "$rulesets_json" \
+      -f "$plan_policy_file" >/dev/null; then
+    echo "unrelated resource negative fixture unexpectedly passed" >&2
     exit 1
   fi
   echo "public ruleset plan policy fixtures passed"
@@ -109,7 +160,7 @@ snapshot_live_rulesets() {
 }
 
 cd "$script_dir"
-bash migrate-homelab-ruleset-state.sh --check
+bash migrate-public-ruleset-state.sh --check
 terragrunt --log-disable init -reconfigure -input=false >/dev/null
 
 plan_dir="$(mktemp -d "${TMPDIR:-/tmp}/github-iac-public-rulesets.XXXXXX")"

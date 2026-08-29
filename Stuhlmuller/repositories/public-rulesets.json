@@ -1,0 +1,13 @@
+[
+  { "repository": ".github", "ruleset_id": 11493159 },
+  { "repository": "ai-pr-reviewer", "ruleset_id": 14700811 },
+  { "repository": "github-iac", "ruleset_id": 5660587 },
+  { "repository": "grafana-iac", "ruleset_id": 8218990 },
+  { "repository": "hivemind", "ruleset_id": 17347203 },
+  { "repository": "homelab", "ruleset_id": 14700233 },
+  { "repository": "personal-website", "ruleset_id": 14702864 },
+  { "repository": "policies", "ruleset_id": 9041681 },
+  { "repository": "renovate", "ruleset_id": 14702863 },
+  { "repository": "terragrunt-catalog", "ruleset_id": 7928987 },
+  { "repository": "workflows", "ruleset_id": 14702865 }
+]
