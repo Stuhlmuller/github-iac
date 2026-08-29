@@ -18,7 +18,9 @@ tofu fmt -check -recursive
 ```
 
 Pull requests run unprivileged validation only. Pull-request code receives no AWS
-credentials, GitHub App private key, or organization-write token.
+credentials, GitHub App private key, or organization-write token. Pre-commit
+dependencies use immutable commit pins, and PR commits must use GitHub noreply
+author and committer addresses.
 
 ## Public control-plane security
 

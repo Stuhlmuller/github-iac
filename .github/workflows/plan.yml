@@ -16,7 +16,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Check Commit Email Privacy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          private_email() {
+            [[ "$1" == "noreply@github.com" ||
+              "$1" =~ ^[^[:space:]@]+@users\.noreply\.github\.com$ ]]
+          }
+          private_email '57728706+rstuhlmuller@users.noreply.github.com'
+          private_email 'noreply@github.com'
+          ! private_email 'operator@example.com'
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+          exposed_emails="$({
+            git log "${BASE_SHA}..${HEAD_SHA}" --format='%ae%n%ce' |
+              sort -u |
+              while IFS= read -r email; do
+                private_email "$email" || printf '%s\n' "$email"
+              done
+          })"
+          if [[ -n "$exposed_emails" ]]; then
+            echo 'Commit author and committer emails must use GitHub noreply addresses.' >&2
+            exit 1
+          fi
 
       - name: Check Terragrunt HCL
         uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
@@ -46,6 +74,17 @@ jobs:
             echo "Renovate must not bypass repository rulesets" >&2
             exit 1
           fi
+          ruby -ryaml -e '
+            hooks = YAML.safe_load(
+              File.read(".pre-commit-config.yaml"),
+              permitted_classes: [],
+              permitted_symbols: [],
+              aliases: true
+            ).fetch("repos")
+            abort "pre-commit hooks must use full commit SHAs" unless hooks.all? do |hook|
+              hook.fetch("rev").match?(/\A[0-9a-f]{40}\z/)
+            end
+          '
 
           mapfile -t workflow_files < <(
             git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml'

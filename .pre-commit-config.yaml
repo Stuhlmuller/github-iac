@@ -2,7 +2,7 @@
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v3.2.0
+    rev: e1668fe86af3810fbca72b8653fe478e66a0afdc # v3.2.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -13,16 +13,16 @@ repos:
       - id: check-added-large-files
       - id: sort-simple-yaml
   - repo: https://github.com/gruntwork-io/pre-commit
-    rev: v0.1.30
+    rev: 40f924cd642f5dc98d12bd97b07f3752223553da # v0.1.30
     hooks:
       - id: tofu-fmt
       - id: terragrunt-hcl-fmt
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: 63c8f8312b7559622c0d82815639671ae42132ac # v2.4.1
     hooks:
     - id: codespell
   - repo: https://github.com/bridgecrewio/checkov.git
-    rev: '3.2.495' # change to tag or sha
+    rev: 9ea6d83d477afb3691795eda79d8f4dd56851d4b # 3.2.495
     hooks:
       - id: checkov
         args: [--framework, 'terraform', --skip-check, 'CKV_AWS_337']
@@ -33,7 +33,7 @@ repos:
       # - id: checkov_secrets_container
 
   - repo: https://github.com/terraform-docs/terraform-docs
-    rev: "v0.16.0"
+    rev: 1f686b1bb3478e6a12fad90bb8ed1fff5f4c2c5b # v0.16.0
     hooks:
       - id: terraform-docs-go
         args: ["modules/"]
