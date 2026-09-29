@@ -152,13 +152,9 @@ inputs = {
           name                = "homelab-production"
           can_admins_bypass   = false
           prevent_self_review = false
-          reviewers = {
-            users = [57728706]
-            teams = []
-          }
           deployment_branch_policy = {
-            protected_branches     = true
-            custom_branch_policies = false
+            protected_branches     = false
+            custom_branch_policies = true
           }
         }
       ]

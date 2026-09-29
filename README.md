@@ -62,6 +62,27 @@ It preserves the stricter Actions settings:
 bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --rollback
 ```
 
+## Homelab deployment approvals
+
+`homelab-plan` retains reviewer approval for PR code. `homelab-production`
+allows only the exact `main` branch, without a second approval after merge.
+Its custom deployment branch rule must already exist; the focused reconciler
+refuses tags, wildcards, additional branches, or missing PR-plan reviewers.
+It changes only the production reviewer requirement and verifies both
+boundaries afterward, without changing secrets or other repositories:
+
+```bash
+bash Stuhlmuller/repositories/reconcile-homelab-production.sh --self-test
+bash Stuhlmuller/repositories/reconcile-homelab-production.sh --apply
+bash Stuhlmuller/repositories/reconcile-homelab-production.sh --check
+```
+
+The HCL declares the same environment policy. The API reconciler supports the
+existing environment before remote-state adoption, preserving its branch
+rules, timer, and administrator-bypass setting. Roll back by restoring the
+production `reviewers` block and applying the environment-only plan described
+below. Homelab's main-only diagnostics also use `homelab-production`.
+
 ## Protected deployment
 
 The `Terragrunt Deploy` workflow accepts only the exact 40-character commit SHA currently at `main`.
