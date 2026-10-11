@@ -24,11 +24,13 @@ jobs:
           tg_dir: Stuhlmuller
           tg_command: 'hcl fmt --check --diff'
 
-      - name: Check OpenTofu module
+      - name: Check OpenTofu modules
         run: |
           tofu fmt -check -recursive
-          tofu -chdir=modules/github_repositories init -backend=false -input=false
-          tofu -chdir=modules/github_repositories validate
+          for module in modules/github_repositories modules/cordium_runners; do
+            tofu -chdir="$module" init -backend=false -input=false
+            tofu -chdir="$module" validate
+          done
 
       - name: Check deployment guardrails
         run: |
