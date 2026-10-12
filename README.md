@@ -163,7 +163,9 @@ test "$(gh secret list --repo Stuhlmuller/github-iac \
 After this change reaches `main`, adopt the bootstrapped environments into the
 declared remote state with administrator AWS and GitHub credentials. Import
 only an address that is absent, then review and apply the exact environment-only
-plan:
+plan. The default scope is homelab only. During initial bootstrap, add
+`github-iac:github-iac-plan` and `github-iac:github-iac-production` to
+`environment_targets` to adopt those environments with their existing reviewers:
 
 ```bash
 set -euo pipefail
@@ -173,8 +175,6 @@ cd Stuhlmuller/repositories
 terragrunt --log-disable init -reconfigure
 
 environment_targets=(
-  github-iac:github-iac-plan
-  github-iac:github-iac-production
   homelab:homelab-plan
   homelab:homelab-production
 )
@@ -198,17 +198,15 @@ trap 'test ! -d "$environment_plan_dir" || rm -rf -- "$environment_plan_dir"' EX
 terragrunt --log-disable plan -input=false "${plan_targets[@]}" \
   -out="$environment_plan"
 terragrunt --log-disable show -json "$environment_plan" > "$environment_plan_json"
-jq -e '
+expected_environments="$(jq -cn --args '
+  $ARGS.positional | map(split(":") | "github_repository_environment.this[\"" + join(".") + "\"]")
+' "${environment_targets[@]}")"
+jq -e --argjson expected_environments "$expected_environments" '
   [.resource_changes[] | select(.mode == "managed")] as $changes
   | ($changes | map(select(.type == "github_repository_environment"))) as $environments
   | ($changes | map(select(.type == "github_repository_environment_deployment_policy"))) as $branches
-  | ($changes | length) == 5
-  and ($environments | map(.address) | sort) == ([
-      "github_repository_environment.this[\"github-iac.github-iac-plan\"]",
-      "github_repository_environment.this[\"github-iac.github-iac-production\"]",
-      "github_repository_environment.this[\"homelab.homelab-plan\"]",
-      "github_repository_environment.this[\"homelab.homelab-production\"]"
-    ] | sort)
+  | ($changes | length) == (($expected_environments | length) + 1)
+  and ($environments | map(.address) | sort) == ($expected_environments | sort)
   and all($environments[];
     (.change.actions == ["no-op"] or .change.actions == ["update"])
     and .change.before.environment == .change.after.environment
