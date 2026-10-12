@@ -163,7 +163,9 @@ test "$(gh secret list --repo Stuhlmuller/github-iac \
 After this change reaches `main`, adopt the bootstrapped environments into the
 declared remote state with administrator AWS and GitHub credentials. Import
 only an address that is absent, then review and apply the exact environment-only
-plan:
+plan. The default scope is homelab only. During initial bootstrap, add
+`github-iac:github-iac-plan` and `github-iac:github-iac-production` to
+`environment_targets` to adopt those environments with their existing reviewers:
 
 ```bash
 set -euo pipefail
@@ -173,8 +175,6 @@ cd Stuhlmuller/repositories
 terragrunt --log-disable init -reconfigure
 
 environment_targets=(
-  github-iac:github-iac-plan
-  github-iac:github-iac-production
   homelab:homelab-plan
   homelab:homelab-production
 )
@@ -189,6 +189,8 @@ for target in "${environment_targets[@]}"; do
   plan_targets+=("-target=$address")
 done
 
+plan_targets+=('-target=github_repository_environment_deployment_policy.this["homelab.homelab-production"]')
+
 environment_plan_dir="$(mktemp -d "${TMPDIR:-/tmp}/github-iac-environments.XXXXXX")"
 environment_plan="$environment_plan_dir/plan.out"
 environment_plan_json="$environment_plan_dir/plan.json"
@@ -196,15 +198,16 @@ trap 'test ! -d "$environment_plan_dir" || rm -rf -- "$environment_plan_dir"' EX
 terragrunt --log-disable plan -input=false "${plan_targets[@]}" \
   -out="$environment_plan"
 terragrunt --log-disable show -json "$environment_plan" > "$environment_plan_json"
-jq -e '
+expected_environments="$(jq -cn --args '
+  $ARGS.positional | map(split(":") | "github_repository_environment.this[\"" + join(".") + "\"]")
+' "${environment_targets[@]}")"
+jq -e --argjson expected_environments "$expected_environments" '
   [.resource_changes[] | select(.mode == "managed")] as $changes
-  | ($changes | map(.address) | sort) == ([
-      "github_repository_environment.this[\"github-iac.github-iac-plan\"]",
-      "github_repository_environment.this[\"github-iac.github-iac-production\"]",
-      "github_repository_environment.this[\"homelab.homelab-plan\"]",
-      "github_repository_environment.this[\"homelab.homelab-production\"]"
-    ] | sort)
-  and all($changes[];
+  | ($changes | map(select(.type == "github_repository_environment"))) as $environments
+  | ($changes | map(select(.type == "github_repository_environment_deployment_policy"))) as $branches
+  | ($changes | length) == (($expected_environments | length) + 1)
+  and ($environments | map(.address) | sort) == ($expected_environments | sort)
+  and all($environments[];
     (.change.actions == ["no-op"] or .change.actions == ["update"])
     and .change.before.environment == .change.after.environment
     and ({
@@ -216,11 +219,20 @@ jq -e '
     and .change.before.repository == .change.after.repository
     and .change.after.can_admins_bypass == false
     and .change.after.prevent_self_review == false
-    and (.change.after.reviewers | length) == 1
-    and (.change.after.reviewers[0].users | sort) == [57728706]
-    and .change.after.reviewers[0].teams == []
+    and (if .change.after.repository == "homelab" then
+      .change.after.reviewers == []
+    else
+      (.change.after.reviewers | length) == 1
+      and (.change.after.reviewers[0].users | sort) == [57728706]
+      and .change.after.reviewers[0].teams == []
+    end)
     and (if .change.after.environment == "homelab-plan" then
       .change.after.deployment_branch_policy == []
+    elif .change.after.environment == "homelab-production" then
+      .change.after.deployment_branch_policy == [{
+        "custom_branch_policies": true,
+        "protected_branches": false
+      }]
     else
       .change.after.deployment_branch_policy == [{
         "custom_branch_policies": false,
@@ -229,6 +241,14 @@ jq -e '
     end)
     and ((.change.importing // null) == null)
     and ((.previous_address // null) == null))
+  and ($branches | length) == 1
+  and all($branches[];
+    .address == "github_repository_environment_deployment_policy.this[\"homelab.homelab-production\"]"
+    and (.change.actions == ["create"] or .change.actions == ["no-op"])
+    and .change.after.repository == "homelab"
+    and .change.after.environment == "homelab-production"
+    and .change.after.branch_pattern == "main"
+    and .change.after.tag_pattern == null)
 ' "$environment_plan_json"
 terragrunt --log-disable show -no-color "$environment_plan"
 printf 'Apply this exact environment-only plan? Type apply: '
@@ -245,7 +265,13 @@ for target in "${environment_targets[@]}"; do
       and .can_admins_bypass == false
       and (if $environment == "homelab-plan" then
         .deployment_branch_policy == null
-        and ([.protection_rules[].type] | sort) == ["required_reviewers"]
+        and .protection_rules == []
+      elif $environment == "homelab-production" then
+        .deployment_branch_policy == {
+          "protected_branches": false,
+          "custom_branch_policies": true
+        }
+        and ([.protection_rules[].type] | sort) == ["branch_policy"]
       else
         .deployment_branch_policy == {
           "protected_branches": true,
@@ -259,24 +285,29 @@ for target in "${environment_targets[@]}"; do
       and ([.protection_rules[] | select(.type == "required_reviewers") | {
         prevent_self_review,
         reviewer_ids: [.reviewers[].reviewer.id]
-      }] == [{
+      }] == (if $environment | startswith("homelab-") then [] else [{
         "prevent_self_review": false,
         "reviewer_ids": [57728706]
-      }])
+      }] end))
     '
 done
 ```
 
-The commands verify all four state addresses, the exact reviewer, disabled
-administrator bypass, protected `main` deployments, and unrestricted trusted
-pull-request refs for `homelab-plan`. The ruleset-only deployment workflow does
-not reconcile environments. `homelab-plan` intentionally omits a branch policy
-because required same-repository pull-request plans run from feature refs; the
-workflow trust check and required environment reviewer remain the gate.
+Verify the production allowlist has exactly one branch and no tags:
 
-`prevent_self_review` remains false because user `57728706` is the only owner
-and deployment reviewer. Enable it after adding a second qualified reviewer;
-administrator bypass remains disabled meanwhile.
+```bash
+gh api repos/Stuhlmuller/homelab/environments/homelab-production/deployment-branch-policies |
+  jq -e '[.branch_policies[] | {name, type}] == [{"name": "main", "type": "branch"}]'
+```
+
+Homelab plans and production jobs run without environment approval. Plans retain
+the same-repository workflow trust check; PR code can use live CI identities
+automatically. Production accepts only `main`, excluding tags. The separate
+`github-iac` environments retain reviewer `rstuhlmuller`, protected-branch
+restrictions, and disabled administrator bypass. The ruleset-only deployment
+workflow does not reconcile environments; use the environment-only saved plan
+above. Rollback restores the homelab reviewer in HCL and applies a reviewed
+saved plan; keep the `main` allowlist.
 
 Do not dispatch while either environment is absent or while the repository secret remains; GitHub would otherwise auto-create an unprotected environment or expose the fallback repository secret.
 
