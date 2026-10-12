@@ -29,6 +29,7 @@ jobs:
           tofu fmt -check -recursive
           tofu -chdir=modules/github_repositories init -backend=false -input=false
           tofu -chdir=modules/github_repositories validate
+          tofu -chdir=modules/github_repositories test
 
       - name: Check deployment guardrails
         run: |
@@ -198,6 +199,12 @@ jobs:
               "workflows.main": {"ruleset_id": 14702865}
             }
             and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
+            and all(.inputs.repositories["homelab"].environments[]; .reviewers == null)
+            and .inputs.repositories["homelab"].environments[1].deployment_branch == "main"
+            and .inputs.repositories["homelab"].environments[1].deployment_branch_policy == {
+              "protected_branches": false,
+              "custom_branch_policies": true
+            }
             and (.inputs.repositories["github-iac"].ruleset | length) == 1
             and .inputs.repositories["github-iac"].ruleset[0].bypass_actors == []
             and .inputs.repositories["github-iac"].ruleset[0].non_fast_forward == true

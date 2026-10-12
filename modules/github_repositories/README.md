@@ -24,7 +24,7 @@ It does six things:
 - `default_repository_ruleset_config`: Baseline ruleset settings merged into every ruleset entry.
 - `repository_ruleset_imports`: Existing ruleset IDs to import and reconcile without repository-resource dependencies.
 - `organization_rulesets`: Organization-level rulesets to apply, including repository-property targeting for dynamic scopes such as public repositories.
-- `repositories[*].environments`: Protected GitHub Actions environments, including reviewers and branch policy.
+- `repositories[*].environments`: Protected GitHub Actions environments, including reviewers and branch policy. Optional `deployment_branch` manages an exact branch pattern through `github_repository_environment_deployment_policy`.
 - `results_per_page`: Page size for the GitHub repository search data source.
 
 ## Example

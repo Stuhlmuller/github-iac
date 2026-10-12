@@ -386,6 +386,17 @@ resource "github_repository_environment" "this" {
   }
 }
 
+resource "github_repository_environment_deployment_policy" "this" {
+  for_each = {
+    for key, environment in local.repository_environments : key => environment
+    if try(environment.deployment_branch, null) != null
+  }
+
+  repository     = each.value.repository
+  environment    = github_repository_environment.this[each.key].environment
+  branch_pattern = each.value.deployment_branch
+}
+
 resource "github_organization_ruleset" "this" {
   for_each = {
     for ruleset in var.organization_rulesets :
