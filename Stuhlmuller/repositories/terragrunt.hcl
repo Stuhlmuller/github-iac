@@ -205,6 +205,10 @@ inputs = {
                 {
                   context        = "Terragrunt Gate"
                   integration_id = 15368
+                },
+                {
+                  context        = "Native Chainguard Receipt Provenance"
+                  integration_id = 15368
                 }
               ]
             }
