@@ -76,23 +76,36 @@ scoped only to `homelab` with repository Administration write. The list API
 requires that permission. The protected workflow creates that token and exposes
 it only as `GITHUB_TOKEN` and `GH_TOKEN`; it receives no organization access.
 
-After the source reaches `main`, dispatch the protected workflow with the
-reviewed current `main` SHA:
+Roll out the prerequisites in this order:
 
-```bash
-gh workflow run reconcile-homelab-native-receipt-event-policy.yml \
-  --repo Stuhlmuller/github-iac --ref main \
-  -f expected_sha=<40-character-main-sha>
-```
+1. Merge this source change to `github-iac/main`. It declares
+   `chainguard-actions/actions-checkout@*` in the `homelab` selected-actions
+   contract. Do not advance the separate required-check ruleset change.
+2. From that reviewed `main` revision, run the public-control-plane reconciler
+   and verify its effective `homelab` selected-actions contract contains
+   `chainguard-actions/actions-checkout@*`. Complete this before merging
+   `Stuhlmuller/homelab#1304`; otherwise its first provenance
+   `push` run can be rejected by the strict selected-actions policy.
+3. Dispatch the protected event-policy workflow with the reviewed current
+   `main` SHA and verify it succeeds:
+
+   ```bash
+   gh workflow run reconcile-homelab-native-receipt-event-policy.yml \
+     --repo Stuhlmuller/github-iac --ref main \
+     -f expected_sha=<40-character-main-sha>
+   ```
+4. Merge `#1304` to `homelab/main` and wait for its provenance `push` run to
+   succeed.
+5. Open or synchronize a harmless same-repository `homelab` pull request and
+   confirm `Native Chainguard Receipt Provenance` appears and succeeds. Only
+   then advance the separate required-check ruleset change.
 
 The workflow checks out and rechecks that exact `main` SHA before its single
 possible mutation. The reconciler rejects inherited or duplicate policy names,
 unexpected sources, broad workflow paths, unexpected events, and concurrent
 drift; it also stops when an effective inherited policy cannot be inspected or
 can block required receipt execution. It reads the policy back after a create or
-update. Verify the successful workflow, then open or synchronize a harmless
-same-repository `homelab` pull request and confirm `Native Chainguard Receipt
-Provenance` appears in the merge box. Do not roll this policy back by deletion:
+update. Do not roll this policy back by deletion:
 that can block the required workflow. Make a reviewed source change and
 dispatch the reconciler instead.
 
