@@ -38,6 +38,7 @@ jobs:
           bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
           bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --self-test
           bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --self-test
+          bash Stuhlmuller/security-configurations/reconcile-homelab-native-receipt-event-policy.sh --self-test
           for reconciler in Stuhlmuller/security-configurations/*.sh; do
             bash -n "$reconciler"
           done
@@ -138,6 +139,7 @@ jobs:
               "actions/checkout@*",
               "aws-actions/configure-aws-credentials@*",
               "cachix/install-nix-action@*",
+              "chainguard-actions/actions-checkout@*",
               "cycjimmy/semantic-release-action@*",
               "github/codeql-action/*@*",
               "nix-community/cache-nix-action@*",

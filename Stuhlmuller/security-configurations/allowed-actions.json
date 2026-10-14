@@ -3,6 +3,7 @@
     "actions/checkout@*",
     "aws-actions/configure-aws-credentials@*",
     "cachix/install-nix-action@*",
+    "chainguard-actions/actions-checkout@*",
     "cycjimmy/semantic-release-action@*",
     "github/codeql-action/*@*",
     "nix-community/cache-nix-action@*",
