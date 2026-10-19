@@ -305,9 +305,14 @@ receives live CI identities. Production jobs remain automatic and accept only
 `main`, excluding tags. The separate
 `github-iac` environments retain reviewer `rstuhlmuller`, protected-branch
 restrictions, and disabled administrator bypass. The ruleset-only deployment
-workflow does not reconcile environments; use the environment-only saved plan
-above. Rollback removes the homelab plan reviewer in HCL and applies a reviewed
-saved plan; keep the `main` allowlist.
+workflow does not reconcile environments. After this change reaches `main`,
+dispatch `.github/workflows/homelab-plan-reviewer.yml` on `main` with
+`expected_sha` set to its exact current commit. It imports only a missing
+`homelab-plan` state address, verifies a reviewer-only saved plan, and applies
+it through the reviewed `github-iac-plan` and `github-iac-production`
+environments. A no-change plan exits without an apply. Rollback removes the
+homelab plan reviewer in HCL and applies a reviewed saved plan; keep the `main`
+allowlist.
 
 Do not dispatch while either environment is absent or while the repository secret remains; GitHub would otherwise auto-create an unprotected environment or expose the fallback repository secret.
 

@@ -37,6 +37,7 @@ jobs:
           bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --self-test
           bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
           bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --self-test
+          bash Stuhlmuller/repositories/homelab-plan-reviewer-policy-test.sh
           bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --self-test
           for reconciler in Stuhlmuller/security-configurations/*.sh; do
             bash -n "$reconciler"
