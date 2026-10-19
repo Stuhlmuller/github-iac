@@ -29,10 +29,10 @@ plan="$(jq -cn --arg address 'github_repository_environment.this["homelab.homela
 before="$(jq -e -S -c --arg source plan --arg phase before -f "$policy" <<<"$plan")"
 after="$(jq -e -S -c --arg source plan --arg phase after -f "$policy" <<<"$plan")"
 test "$before" != "$after"
-live_before="$(jq -n -S -c --arg source live --arg phase before -f "$policy" '
+live_before="$(jq -n '
   {name: "homelab-plan", can_admins_bypass: false,
    deployment_branch_policy: null, protection_rules: []}
-')"
+' | jq -e -S -c --arg source live --arg phase before -f "$policy")"
 test "$before" = "$live_before"
 
 no_op="$(jq -c '.resource_changes[0].change.actions = ["no-op"] |
