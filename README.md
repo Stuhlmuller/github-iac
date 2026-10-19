@@ -105,7 +105,17 @@ repository-owned API check verifies exact default drift directly. GitHub notes
 that it has no effect while native required approvals remain zero; `policy-bot`
 is the effective approval gate for these repositories.
 
-The workflow never moves state. Dispatch it only after the separate migration:
+The workflow never moves state. Before adding `Native Chainguard Receipt
+Provenance`, merge `.github/workflows/harbor-native-chainguard-receipt-provenance.yml`
+to `homelab/main` and confirm its `push` run succeeds with that exact GitHub
+Actions (`15368`) job. Open or synchronize a harmless same-repository PR and
+confirm the job succeeds. Then merge the GitHub-IaC change and dispatch
+`deploy.yml` for its exact main SHA. After enforcement, synchronize that PR
+again; proceed only if its merge box marks the exact check required and it
+passes. Before 2026-11-02, apply the separate public-repository Actions event
+policy that permits this `pull_request_target` workflow.
+
+Dispatch only after that sequence:
 
 1. Dispatch `.github/workflows/deploy.yml` on `main` with `expected_sha` set to the reviewed commit.
 2. Approve `github-iac-plan`.
@@ -119,7 +129,7 @@ gh workflow run deploy.yml --repo Stuhlmuller/github-iac --ref main \
 
 The workflow targets only the isolated homelab ruleset. It hashes canonical
 before and after policy state, binds the before hash to GitHub immediately
-before apply, and requires the after hash to contain exactly seven checks,
+before apply, and requires the after hash to contain exactly eight checks,
 strict mode, pull-request/signature/history protections, exact branch
 conditions, and no bypass actors. The
 encrypted, versioned saved plan is deleted only after apply and exact live
