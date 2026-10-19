@@ -144,7 +144,7 @@ jobs:
           jq -e -S -c --arg source plan --arg phase before -f "$policy" plan.json > plan-before.json
           jq -e -S -c --arg source plan --arg phase after -f "$policy" plan.json > plan-after.json
           gh api repos/Stuhlmuller/homelab/environments/homelab-plan > live-before.json
-          jq -e -S -c --arg source live -f "$policy" live-before.json > live-before-normalized.json
+          jq -e -S -c --arg source live --arg phase before -f "$policy" live-before.json > live-before-normalized.json
           cmp plan-before.json live-before-normalized.json
           changed="$(jq -r '[.resource_changes[]? | select(.mode == "managed" and .change.actions != ["no-op"])] | length == 1' plan.json)"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
@@ -268,7 +268,7 @@ jobs:
           jq -e -S -c --arg source plan --arg phase before -f "$policy" plan.json > plan-before.json
           jq -e -S -c --arg source plan --arg phase after -f "$policy" plan.json > plan-after.json
           gh api repos/Stuhlmuller/homelab/environments/homelab-plan > live-before.json
-          jq -e -S -c --arg source live -f "$policy" live-before.json > live-before-normalized.json
+          jq -e -S -c --arg source live --arg phase before -f "$policy" live-before.json > live-before-normalized.json
           cmp plan-before.json live-before-normalized.json
           terragrunt apply "$PLAN_FILE"
 
@@ -280,7 +280,7 @@ jobs:
           set -euo pipefail
           policy="$GITHUB_WORKSPACE/Stuhlmuller/repositories/homelab-plan-reviewer-policy.jq"
           gh api repos/Stuhlmuller/homelab/environments/homelab-plan > live-after.json
-          jq -e -S -c --arg source live -f "$policy" live-after.json > live-after-normalized.json
+          jq -e -S -c --arg source live --arg phase after -f "$policy" live-after.json > live-after-normalized.json
           cmp "$WORKING_DIR/plan-after.json" live-after-normalized.json
 
       - name: Delete verified saved plan
