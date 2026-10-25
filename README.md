@@ -266,7 +266,7 @@ jq -e --argjson expected_environments "$expected_environments" '
     and .change.before.repository == .change.after.repository
     and .change.after.can_admins_bypass == false
     and .change.after.prevent_self_review == false
-    and (if .change.after.repository == "homelab" then
+    and (if .change.after.environment == "homelab-production" then
       .change.after.reviewers == []
     else
       (.change.after.reviewers | length) == 1
@@ -312,7 +312,7 @@ for target in "${environment_targets[@]}"; do
       and .can_admins_bypass == false
       and (if $environment == "homelab-plan" then
         .deployment_branch_policy == null
-        and .protection_rules == []
+        and ([.protection_rules[].type] | sort) == ["required_reviewers"]
       elif $environment == "homelab-production" then
         .deployment_branch_policy == {
           "protected_branches": false,
@@ -332,7 +332,7 @@ for target in "${environment_targets[@]}"; do
       and ([.protection_rules[] | select(.type == "required_reviewers") | {
         prevent_self_review,
         reviewer_ids: [.reviewers[].reviewer.id]
-      }] == (if $environment | startswith("homelab-") then [] else [{
+      }] == (if $environment == "homelab-production" then [] else [{
         "prevent_self_review": false,
         "reviewer_ids": [57728706]
       }] end))
@@ -347,14 +347,19 @@ gh api repos/Stuhlmuller/homelab/environments/homelab-production/deployment-bran
   jq -e '[.branch_policies[] | {name, type}] == [{"name": "main", "type": "branch"}]'
 ```
 
-Homelab plans and production jobs run without environment approval. Plans retain
-the same-repository workflow trust check; PR code can use live CI identities
-automatically. Production accepts only `main`, excluding tags. The separate
+Homelab PR plans require approval from reviewer `rstuhlmuller` before PR code
+receives live CI identities. Production jobs remain automatic and accept only
+`main`, excluding tags. The separate
 `github-iac` environments retain reviewer `rstuhlmuller`, protected-branch
 restrictions, and disabled administrator bypass. The ruleset-only deployment
-workflow does not reconcile environments; use the environment-only saved plan
-above. Rollback restores the homelab reviewer in HCL and applies a reviewed
-saved plan; keep the `main` allowlist.
+workflow does not reconcile environments. After this change reaches `main`,
+dispatch `.github/workflows/homelab-plan-reviewer.yml` on `main` with
+`expected_sha` set to its exact current commit. It imports only a missing
+`homelab-plan` state address, verifies a reviewer-only saved plan, and applies
+it through the reviewed `github-iac-plan` and `github-iac-production`
+environments. A no-change plan exits without an apply. Rollback removes the
+homelab plan reviewer in HCL and applies a reviewed saved plan; keep the `main`
+allowlist.
 
 Do not dispatch while either environment is absent or while the repository secret remains; GitHub would otherwise auto-create an unprotected environment or expose the fallback repository secret.
 

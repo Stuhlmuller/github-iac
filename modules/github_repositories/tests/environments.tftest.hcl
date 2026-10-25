@@ -1,6 +1,6 @@
 mock_provider "github" {}
 
-run "automatic_homelab_environments" {
+run "reviewed_homelab_plan" {
   command = plan
 
   variables {
@@ -10,7 +10,13 @@ run "automatic_homelab_environments" {
         visibility = "public"
         ruleset    = []
         environments = [
-          { name = "homelab-plan" },
+          {
+            name = "homelab-plan"
+            reviewers = {
+              users = [57728706]
+              teams = []
+            }
+          },
           {
             name              = "homelab-production"
             deployment_branch = "main"
@@ -25,8 +31,8 @@ run "automatic_homelab_environments" {
   }
 
   assert {
-    condition     = length(github_repository_environment.this["homelab.homelab-plan"].reviewers) == 0 && length(github_repository_environment.this["homelab.homelab-production"].reviewers) == 0
-    error_message = "Homelab environments must not require approval."
+    condition     = github_repository_environment.this["homelab.homelab-plan"].reviewers[0].users == toset([57728706]) && length(github_repository_environment.this["homelab.homelab-production"].reviewers) == 0
+    error_message = "Homelab PR plans require owner approval; production remains automatic."
   }
 
   assert {

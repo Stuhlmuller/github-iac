@@ -37,6 +37,7 @@ jobs:
           bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --self-test
           bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
           bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --self-test
+          bash Stuhlmuller/repositories/homelab-plan-reviewer-policy-test.sh
           bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --self-test
           bash Stuhlmuller/security-configurations/reconcile-homelab-native-receipt-event-policy.sh --self-test
           for reconciler in Stuhlmuller/security-configurations/*.sh; do
@@ -201,7 +202,11 @@ jobs:
               "workflows.main": {"ruleset_id": 14702865}
             }
             and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
-            and all(.inputs.repositories["homelab"].environments[]; .reviewers == null)
+            and .inputs.repositories["homelab"].environments[0].reviewers == {
+              "users": [57728706],
+              "teams": []
+            }
+            and .inputs.repositories["homelab"].environments[1].reviewers == null
             and .inputs.repositories["homelab"].environments[1].deployment_branch == "main"
             and .inputs.repositories["homelab"].environments[1].deployment_branch_policy == {
               "protected_branches": false,
