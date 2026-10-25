@@ -43,7 +43,7 @@ def expected:
       required_approving_review_count: 0
     },
     required_status_checks: {
-      strict_required_status_checks_policy: true,
+      strict_required_status_checks_policy: false,
       do_not_enforce_on_create: false,
       checks: expected_checks
     }

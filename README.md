@@ -119,9 +119,10 @@ gh workflow run deploy.yml --repo Stuhlmuller/github-iac --ref main \
 
 The workflow targets only the isolated homelab ruleset. It hashes canonical
 before and after policy state, binds the before hash to GitHub immediately
-before apply, and requires the after hash to contain exactly seven checks,
-strict mode, pull-request/signature/history protections, exact branch
-conditions, and no bypass actors. The
+before apply, and requires the after hash to contain exactly seven required
+checks without requiring the branch to be up to date, plus pull-request,
+signature, and history protections, exact branch conditions, and no bypass
+actors. The
 encrypted, versioned saved plan is deleted only after apply and exact live
 verification. Rejected, cancelled, or failed runs retain their exact plan
 version for investigation and explicit cleanup.
@@ -320,4 +321,4 @@ Do not run an untargeted organization-wide apply to deliver a homelab ruleset ch
 
 ## Rollback
 
-Create a forward commit correcting only the incompatible rule while retaining strict mode, all other protections, the isolated `github_repository_ruleset.existing` state addresses, and the protected workflow. Full code reverts are unsupported because they would require a separate reviewed reverse state migration for all 11 address and ruleset-ID pairs. Never repair live GitHub state manually.
+Create a forward commit correcting only the incompatible rule while retaining the required checks, all other protections, the isolated `github_repository_ruleset.existing` state addresses, and the protected workflow. Full code reverts are unsupported because they would require a separate reviewed reverse state migration for all 11 address and ruleset-ID pairs. Never repair live GitHub state manually.
