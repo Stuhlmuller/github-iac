@@ -62,6 +62,46 @@ It preserves the stricter Actions settings:
 bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --rollback
 ```
 
+## Native receipt Actions event policy
+
+GitHub blocks `pull_request_target` in public repositories unless an Actions
+policy permits the event. The repository owns one direct `homelab` policy in
+`Stuhlmuller/security-configurations/reconcile-homelab-native-receipt-event-policy.sh`.
+It permits only `pull_request_target` and `push` for
+`.github/workflows/harbor-native-chainguard-receipt-provenance.yml`; every other
+workflow and event remains outside this policy.
+
+Both `--check` and `--apply` require a dedicated GitHub App installation token
+scoped only to `homelab` with repository Administration write. The list API
+requires that permission. The protected workflow creates that token and exposes
+it only as `GITHUB_TOKEN` and `GH_TOKEN`; it receives no organization access.
+
+Roll out the policy in this order:
+
+1. Merge this source change to `github-iac/main`. If `homelab` uses a selected
+   Actions allowlist, reconcile it from that revision and verify it permits
+   `chainguard-actions/actions-checkout@*` before dispatching the policy workflow.
+2. Dispatch the protected event-policy workflow with the reviewed current
+   `main` SHA and verify it succeeds:
+
+   ```bash
+   gh workflow run reconcile-homelab-native-receipt-event-policy.yml \
+     --repo Stuhlmuller/github-iac --ref main \
+     -f expected_sha=<40-character-main-sha>
+   ```
+3. Open or synchronize a harmless same-repository `homelab` pull request and
+   confirm `Native Chainguard Receipt Provenance` appears and succeeds before
+   making that status a required check.
+
+The workflow checks out and rechecks that exact `main` SHA before its single
+possible mutation. The reconciler rejects inherited or duplicate policy names,
+unexpected sources, broad workflow paths, unexpected events, and concurrent
+drift; it also stops when an effective inherited policy cannot be inspected or
+can block required receipt execution. It reads the policy back after a create or
+update. Do not roll this policy back by deletion:
+that can block the required workflow. Make a reviewed source change and
+dispatch the reconciler instead.
+
 ## Protected deployment
 
 The `Terragrunt Deploy` workflow accepts only the exact 40-character commit SHA currently at `main`.

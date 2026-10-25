@@ -1,0 +1,69 @@
+name: "Reconcile Native Receipt Event Policy"
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact commit SHA currently at main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homelab-native-receipt-event-policy
+  cancel-in-progress: false
+
+env:
+  EXPECTED_SHA: ${{ inputs.expected_sha }}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    environment: github-iac-production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Create scoped GitHub App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homelab
+          permission-administration: write
+
+      - name: Recheck exact current main before policy mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Reconcile native receipt event policy
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: bash Stuhlmuller/security-configurations/reconcile-homelab-native-receipt-event-policy.sh --apply
