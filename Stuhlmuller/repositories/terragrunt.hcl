@@ -143,6 +143,10 @@ inputs = {
           name                = "homelab-plan"
           can_admins_bypass   = false
           prevent_self_review = false
+          reviewers = {
+            users = [57728706]
+            teams = []
+          }
         },
         {
           name                = "homelab-production"
