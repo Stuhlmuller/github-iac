@@ -76,17 +76,12 @@ scoped only to `homelab` with repository Administration write. The list API
 requires that permission. The protected workflow creates that token and exposes
 it only as `GITHUB_TOKEN` and `GH_TOKEN`; it receives no organization access.
 
-Roll out the prerequisites in this order:
+Roll out the policy in this order:
 
-1. Merge this source change to `github-iac/main`. It declares
-   `chainguard-actions/actions-checkout@*` in the `homelab` selected-actions
-   contract. Do not advance the separate required-check ruleset change.
-2. From that reviewed `main` revision, run the public-control-plane reconciler
-   and verify its effective `homelab` selected-actions contract contains
-   `chainguard-actions/actions-checkout@*`. Complete this before merging
-   `Stuhlmuller/homelab#1304`; otherwise its first provenance
-   `push` run can be rejected by the strict selected-actions policy.
-3. Dispatch the protected event-policy workflow with the reviewed current
+1. Merge this source change to `github-iac/main`. If `homelab` uses a selected
+   Actions allowlist, reconcile it from that revision and verify it permits
+   `chainguard-actions/actions-checkout@*` before dispatching the policy workflow.
+2. Dispatch the protected event-policy workflow with the reviewed current
    `main` SHA and verify it succeeds:
 
    ```bash
@@ -94,11 +89,9 @@ Roll out the prerequisites in this order:
      --repo Stuhlmuller/github-iac --ref main \
      -f expected_sha=<40-character-main-sha>
    ```
-4. Merge `#1304` to `homelab/main` and wait for its provenance `push` run to
-   succeed.
-5. Open or synchronize a harmless same-repository `homelab` pull request and
-   confirm `Native Chainguard Receipt Provenance` appears and succeeds. Only
-   then advance the separate required-check ruleset change.
+3. Open or synchronize a harmless same-repository `homelab` pull request and
+   confirm `Native Chainguard Receipt Provenance` appears and succeeds before
+   making that status a required check.
 
 The workflow checks out and rechecks that exact `main` SHA before its single
 possible mutation. The reconciler rejects inherited or duplicate policy names,
