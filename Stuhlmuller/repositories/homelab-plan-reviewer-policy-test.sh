@@ -13,14 +13,15 @@ plan="$(jq -cn --arg address 'github_repository_environment.this["homelab.homela
         id: "homelab:homelab-plan", repository_id: 123,
         repository: "homelab", environment: "homelab-plan",
         can_admins_bypass: false, prevent_self_review: false,
-        wait_timer: null, deployment_branch_policy: [], reviewers: []
+        wait_timer: null, deployment_branch_policy: [],
+        reviewers: [{users: [57728706], teams: []}]
       },
       after: {
         id: "homelab:homelab-plan", repository_id: 123,
         repository: "homelab", environment: "homelab-plan",
         can_admins_bypass: false, prevent_self_review: false,
         wait_timer: null, deployment_branch_policy: [],
-        reviewers: [{users: [57728706], teams: []}]
+        reviewers: []
       }
     }
   }]}
@@ -31,7 +32,10 @@ after="$(jq -e -S -c --arg source plan --arg phase after -f "$policy" <<<"$plan"
 test "$before" != "$after"
 live_before="$(jq -n '
   {name: "homelab-plan", can_admins_bypass: false,
-   deployment_branch_policy: null, protection_rules: []}
+   deployment_branch_policy: null, protection_rules: [{
+     type: "required_reviewers", prevent_self_review: false,
+     reviewers: [{reviewer: {type: "User", id: 57728706}}]
+   }]}
 ' | jq -e -S -c --arg source live --arg phase before -f "$policy")"
 test "$before" = "$live_before"
 
@@ -41,7 +45,7 @@ jq -e --arg source plan --arg phase after -f "$policy" <<<"$no_op" >/dev/null
 
 reject() {
   if jq -e --arg source plan --arg phase after -f "$policy" >/dev/null 2>&1; then
-    echo "out-of-scope reviewer plan was accepted" >&2
+    echo "out-of-scope approval plan was accepted" >&2
     exit 1
   fi
 }
@@ -49,5 +53,5 @@ jq -c '.resource_changes += [{address: "github_repository.this[\"homelab\"]",
   mode: "managed", change: {actions: ["update"]}}]' <<<"$plan" | reject
 jq -c '.resource_changes[0].change.after.deployment_branch_policy =
   [{protected_branches: true, custom_branch_policies: false}]' <<<"$plan" | reject
-jq -c '.resource_changes[0].change.after.reviewers[0].users = [42]' <<<"$plan" | reject
+jq -c '.resource_changes[0].change.after.reviewers = [{users: [42], teams: []}]' <<<"$plan" | reject
 jq -c '.resource_changes[0].change.actions = ["create"]' <<<"$plan" | reject
