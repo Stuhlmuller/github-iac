@@ -205,7 +205,7 @@ declared remote state with administrator AWS and GitHub credentials. Import
 only an address that is absent, then review and apply the exact environment-only
 plan. The default scope is homelab only. During initial bootstrap, add
 `github-iac:github-iac-plan` and `github-iac:github-iac-production` to
-`environment_targets` to adopt those environments with their existing reviewers:
+`environment_targets` to adopt those environments with their declared protection:
 
 ```bash
 set -euo pipefail
@@ -259,7 +259,7 @@ jq -e --argjson expected_environments "$expected_environments" '
     and .change.before.repository == .change.after.repository
     and .change.after.can_admins_bypass == false
     and .change.after.prevent_self_review == false
-    and (if .change.after.environment == "homelab-production" then
+    and (if .change.after.environment == "homelab-plan" or .change.after.environment == "homelab-production" then
       .change.after.reviewers == []
     else
       (.change.after.reviewers | length) == 1
@@ -305,7 +305,7 @@ for target in "${environment_targets[@]}"; do
       and .can_admins_bypass == false
       and (if $environment == "homelab-plan" then
         .deployment_branch_policy == null
-        and ([.protection_rules[].type] | sort) == ["required_reviewers"]
+        and (.protection_rules | length) == 0
       elif $environment == "homelab-production" then
         .deployment_branch_policy == {
           "protected_branches": false,
@@ -325,7 +325,7 @@ for target in "${environment_targets[@]}"; do
       and ([.protection_rules[] | select(.type == "required_reviewers") | {
         prevent_self_review,
         reviewer_ids: [.reviewers[].reviewer.id]
-      }] == (if $environment == "homelab-production" then [] else [{
+      }] == (if $environment == "homelab-plan" or $environment == "homelab-production" then [] else [{
         "prevent_self_review": false,
         "reviewer_ids": [57728706]
       }] end))
@@ -340,17 +340,17 @@ gh api repos/Stuhlmuller/homelab/environments/homelab-production/deployment-bran
   jq -e '[.branch_policies[] | {name, type}] == [{"name": "main", "type": "branch"}]'
 ```
 
-Homelab PR plans require approval from reviewer `rstuhlmuller` before PR code
-receives live CI identities. Production jobs remain automatic and accept only
-`main`, excluding tags. The separate
+Homelab PR plans start automatically for same-repository branches after the
+workflow trust check. Production jobs remain automatic and accept only `main`,
+excluding tags. The separate
 `github-iac` environments retain reviewer `rstuhlmuller`, protected-branch
 restrictions, and disabled administrator bypass. The ruleset-only deployment
 workflow does not reconcile environments. After this change reaches `main`,
 dispatch `.github/workflows/homelab-plan-reviewer.yml` on `main` with
 `expected_sha` set to its exact current commit. It imports only a missing
-`homelab-plan` state address, verifies a reviewer-only saved plan, and applies
+`homelab-plan` state address, verifies an approval-only saved plan, and applies
 it through the reviewed `github-iac-plan` and `github-iac-production`
-environments. A no-change plan exits without an apply. Rollback removes the
+environments. A no-change plan exits without an apply. Rollback restores the
 homelab plan reviewer in HCL and applies a reviewed saved plan; keep the `main`
 allowlist.
 

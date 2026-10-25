@@ -1,4 +1,4 @@
-name: Reconcile Homelab Plan Reviewer
+name: Reconcile Homelab Plan Approval
 
 on:
   workflow_dispatch:
@@ -272,7 +272,7 @@ jobs:
           cmp plan-before.json live-before-normalized.json
           terragrunt apply "$PLAN_FILE"
 
-      - name: Verify live reviewer
+      - name: Verify live approval settings
         shell: bash
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

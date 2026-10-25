@@ -202,10 +202,7 @@ jobs:
               "workflows.main": {"ruleset_id": 14702865}
             }
             and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
-            and .inputs.repositories["homelab"].environments[0].reviewers == {
-              "users": [57728706],
-              "teams": []
-            }
+            and .inputs.repositories["homelab"].environments[0].reviewers == null
             and .inputs.repositories["homelab"].environments[1].reviewers == null
             and .inputs.repositories["homelab"].environments[1].deployment_branch == "main"
             and .inputs.repositories["homelab"].environments[1].deployment_branch_policy == {

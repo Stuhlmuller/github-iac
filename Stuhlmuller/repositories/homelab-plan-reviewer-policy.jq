@@ -47,13 +47,13 @@ if $source == "plan" then
       prevent_self_review: false,
       wait_timer: 0,
       deployment_branch_policy: null,
-      reviewers: {users: [57728706], teams: []}
+      reviewers: {users: [], teams: []}
     })
     and (($target[0].change.importing // null) == null)
     and (($target[0].previous_address // null) == null)
   | if . then
       ($target[0].change[if $phase == "before" then "before" else "after" end] | plan_state)
-    else error("saved plan changes resources or settings outside homelab-plan reviewers") end
+    else error("saved plan changes resources or settings outside homelab-plan approval") end
 elif $source == "live" then
   live_state
 else
