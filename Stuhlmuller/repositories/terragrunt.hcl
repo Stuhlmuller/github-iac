@@ -165,7 +165,13 @@ inputs = {
           require_signed_commits     = false
           update                     = false
           require_code_owner_reviews = false
-          bypass_actors              = []
+          bypass_actors = [
+            {
+              actor_id    = 5015161 # n8n - rstuhlmuller
+              actor_type  = "Integration"
+              bypass_mode = "pull_request"
+            }
+          ]
           pull_requests = [
             {
               allowed_merge_methods           = ["squash"]
