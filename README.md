@@ -170,11 +170,14 @@ The cancelled #813 run `44247272941` has a single-use cleanup path in
 `.github/workflows/cleanup-cancelled-homelab-plan.yml`. It fixes the bucket,
 key, original commit and run ID in source, requires exact current `main`, and
 uses the protected plan environment to inspect the sole version and verify its
-metadata, encryption and bytes. A separate production approval then permits
-deletion of only that reviewed version after repeating the checks. Dispatch it
-only after source review. Inspect the artifact evidence before production
-approval. Remove the workflow in a later protected change after the object is
-confirmed absent.
+metadata, encryption and bytes under a read-only AWS session policy. The inspect
+job publishes a bounded review receipt with the exact key, version ID, byte
+SHA-256, source commit, cancelled run and KMS key. A separate production approval
+then permits deletion of only that reviewed version after repeating the checks
+and verifying current `main` immediately before the delete call. Dispatch it
+only after source review. Inspect the job summary before production approval.
+Remove the workflow in a later protected change after the object is confirmed
+absent.
 
 Required GitHub configuration:
 
