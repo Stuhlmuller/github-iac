@@ -28,7 +28,6 @@ def expected:
       "non_fast_forward",
       "pull_request",
       "required_linear_history",
-      "required_signatures",
       "required_status_checks"
     ],
     pull_request: {
