@@ -67,6 +67,7 @@ class CleanupTest(unittest.TestCase):
     def test_delete_targets_only_reviewed_version(self):
         with mock.patch.object(cleanup, "inspect", return_value=("version-1", self.digest)), \
              mock.patch.object(cleanup, "aws", side_effect=[{}, {"Versions": []}]) as aws, \
+             mock.patch("builtins.print"), \
              mock.patch("sys.argv", [str(SCRIPT), "delete", "--expected-version", "version-1",
                                      "--expected-sha256", self.digest]):
             cleanup.main()
