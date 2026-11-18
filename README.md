@@ -172,7 +172,9 @@ key, original commit and run ID in source, requires exact current `main`, and
 uses the protected plan environment to inspect the sole version and verify its
 metadata, encryption and bytes under a read-only AWS session policy. The inspect
 job publishes a bounded review receipt with the exact key, version ID, byte
-SHA-256, source commit, cancelled run and KMS key. A separate production approval
+SHA-256, source commit, cancelled run and KMS key. KMS access is limited to the
+uploader's `alias/homelab-opentofu`; inspection resolves that alias and requires
+the stored object to use the resolved key. A separate production approval
 then permits deletion of only that reviewed version after repeating the checks
 and verifying current `main` immediately before the delete call. Dispatch it
 only after source review. Inspect the job summary before production approval.

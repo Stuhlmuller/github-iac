@@ -94,7 +94,16 @@ jobs:
                   "Effect": "Allow",
                   "Action": "kms:Decrypt",
                   "Resource": "arn:aws:kms:us-east-1:716182248480:key/*",
-                  "Condition": {"StringEquals": {"kms:ViaService": "s3.us-east-1.amazonaws.com"}}
+                  "Condition": {
+                    "ForAnyValue:StringEquals": {"kms:ResourceAliases": "alias/homelab-opentofu"},
+                    "StringEquals": {"kms:ViaService": "s3.us-east-1.amazonaws.com"}
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "kms:DescribeKey",
+                  "Resource": "arn:aws:kms:us-east-1:716182248480:key/*",
+                  "Condition": {"ForAnyValue:StringEquals": {"kms:ResourceAliases": "alias/homelab-opentofu"}}
                 }
               ]
             }

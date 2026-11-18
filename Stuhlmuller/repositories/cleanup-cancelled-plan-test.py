@@ -50,7 +50,7 @@ class CleanupTest(unittest.TestCase):
                 cleanup.sole_version(inventory)
 
     def test_metadata_and_encryption_must_match_exact_run(self):
-        self.assertEqual(cleanup.validate_head(self.head, "version-1"), self.receipt)
+        self.assertEqual(cleanup.validate_head(self.head, "version-1", self.kms), self.receipt)
         mutations = (
             {"VersionId": "version-2"}, {"ServerSideEncryption": "AES256"},
             {"ContentLength": 0},
@@ -58,10 +58,11 @@ class CleanupTest(unittest.TestCase):
             {"Metadata": dict(self.head["Metadata"], **{"run-id": "other"})},
             {"Metadata": dict(self.head["Metadata"], sha256="bad")},
             {"SSEKMSKeyId": "alias/unreviewed"},
+            {"SSEKMSKeyId": "arn:aws:kms:us-east-1:716182248480:key/99999999-2222-3333-4444-555555555555"},
         )
         for changed in mutations:
             with self.subTest(changed=changed), self.assertRaises(RuntimeError):
-                cleanup.validate_head(dict(self.head, **changed), "version-1")
+                cleanup.validate_head(dict(self.head, **changed), "version-1", self.kms)
 
     def test_changed_reviewed_version_never_deletes(self):
         with mock.patch.object(cleanup, "inspect", return_value=("version-2", self.receipt)), \
@@ -131,12 +132,18 @@ class CleanupTest(unittest.TestCase):
         actions = {action for statement in statements for action in
                    ([statement["Action"]] if isinstance(statement["Action"], str)
                     else statement["Action"])}
-        self.assertEqual(actions, {"s3:ListBucketVersions", "s3:GetObjectVersion", "kms:Decrypt"})
+        self.assertEqual(actions, {"s3:ListBucketVersions", "s3:GetObjectVersion",
+                                   "kms:Decrypt", "kms:DescribeKey"})
         self.assertFalse(any("*" in action or "Delete" in action or "Put" in action
                              for action in actions))
         self.assertEqual(statements[0]["Condition"]["StringEquals"]["s3:prefix"], cleanup.KEY)
         self.assertEqual(statements[1]["Resource"],
                          f"arn:aws:s3:::{cleanup.BUCKET}/{cleanup.KEY}")
+        for statement in statements[2:]:
+            self.assertEqual(statement["Condition"]["ForAnyValue:StringEquals"]
+                             ["kms:ResourceAliases"], cleanup.KMS_ALIAS)
+        self.assertEqual(statements[2]["Condition"]["StringEquals"]["kms:ViaService"],
+                         "s3.us-east-1.amazonaws.com")
 
     def test_byte_hash_mismatch_never_passes_inspection(self):
         def fake_aws(*args):
@@ -149,7 +156,8 @@ class CleanupTest(unittest.TestCase):
                 return {}
             self.fail("unexpected AWS command")
 
-        with mock.patch.object(cleanup, "aws", side_effect=fake_aws):
+        with mock.patch.object(cleanup, "expected_kms_key", return_value=self.kms), \
+             mock.patch.object(cleanup, "aws", side_effect=fake_aws):
             with self.assertRaisesRegex(RuntimeError, "bytes do not match"):
                 cleanup.inspect()
 

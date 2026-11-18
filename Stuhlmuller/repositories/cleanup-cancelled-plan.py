@@ -15,6 +15,7 @@ BUCKET = "rstuhlmuller-aws-s3-use1-datalake"
 COMMIT = "3895951caad2f0828c9479e2ead97f8d56d38c14"
 RUN_ID = "44247272941"
 KEY = f"IaC/github-iac/saved-plans/{COMMIT}/{RUN_ID}-1/plan.out"
+KMS_ALIAS = "alias/homelab-opentofu"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 KMS_KEY = re.compile(r"arn:aws:kms:us-east-1:[0-9]{12}:key/[A-Za-z0-9-]+\Z")
@@ -31,6 +32,21 @@ def aws(*args):
         raise RuntimeError("AWS artifact response was not JSON") from exc
 
 
+def expected_kms_key():
+    result = subprocess.run(["aws", "kms", "describe-key", "--key-id", KMS_ALIAS],
+                            capture_output=True, text=True, check=False, timeout=60)
+    if result.returncode:
+        raise RuntimeError("KMS alias identity check failed; private details withheld")
+    try:
+        metadata = json.loads(result.stdout)["KeyMetadata"]
+        key = metadata["Arn"]
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("KMS alias identity response was invalid") from exc
+    if not KMS_KEY.fullmatch(key) or not metadata.get("Enabled"):
+        raise RuntimeError("KMS alias does not resolve to an enabled expected key")
+    return key
+
+
 def sole_version(inventory):
     versions = [item for item in inventory.get("Versions", []) if item.get("Key") == KEY]
     markers = [item for item in inventory.get("DeleteMarkers", []) if item.get("Key") == KEY]
@@ -43,7 +59,7 @@ def sole_version(inventory):
     return version
 
 
-def validate_head(head, version):
+def validate_head(head, version, expected_kms):
     metadata = head.get("Metadata") or {}
     if head.get("VersionId") != version or head.get("ServerSideEncryption") != "aws:kms":
         raise RuntimeError("Cancelled plan version or encryption does not match")
@@ -55,18 +71,19 @@ def validate_head(head, version):
         if not HEX64.fullmatch(metadata.get(name, "")):
             raise RuntimeError("Cancelled plan hash metadata is invalid")
     kms_key = head.get("SSEKMSKeyId", "")
-    if not KMS_KEY.fullmatch(kms_key):
-        raise RuntimeError("Cancelled plan KMS key identity is invalid")
+    if kms_key != expected_kms or not KMS_KEY.fullmatch(kms_key):
+        raise RuntimeError("Cancelled plan KMS key does not match uploader alias")
     return {"sha256": metadata["sha256"], "before_sha256": metadata["before-sha256"],
             "after_sha256": metadata["after-sha256"], "kms_key_id": kms_key}
 
 
 def inspect():
+    expected_kms = expected_kms_key()
     inventory = aws("list-object-versions", "--bucket", BUCKET, "--prefix", KEY)
     version = sole_version(inventory)
     head = aws("head-object", "--bucket", BUCKET, "--key", KEY,
                "--version-id", version)
-    receipt = validate_head(head, version)
+    receipt = validate_head(head, version, expected_kms)
     with tempfile.TemporaryDirectory(prefix="cancelled-plan-") as directory:
         plan = Path(directory) / "plan.out"
         aws("get-object", "--bucket", BUCKET, "--key", KEY,
