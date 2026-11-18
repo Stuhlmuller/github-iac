@@ -64,6 +64,16 @@ class CleanupTest(unittest.TestCase):
                 cleanup.main()
             aws.assert_not_called()
 
+    def test_delete_targets_only_reviewed_version(self):
+        with mock.patch.object(cleanup, "inspect", return_value=("version-1", self.digest)), \
+             mock.patch.object(cleanup, "aws", side_effect=[{}, {"Versions": []}]) as aws, \
+             mock.patch("sys.argv", [str(SCRIPT), "delete", "--expected-version", "version-1",
+                                     "--expected-sha256", self.digest]):
+            cleanup.main()
+            self.assertEqual(aws.call_args_list[0], mock.call(
+                "delete-object", "--bucket", cleanup.BUCKET, "--key", cleanup.KEY,
+                "--version-id", "version-1"))
+
     def test_byte_hash_mismatch_never_passes_inspection(self):
         def fake_aws(*args):
             if args[0] == "list-object-versions":
