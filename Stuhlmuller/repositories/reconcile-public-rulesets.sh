@@ -169,6 +169,12 @@ if [[ "$mode" == "--self-test" ]]; then
     --arg phase after \
     --arg expect desired \
     -f "$homelab_policy_file" <<<"$homelab_live_fixture" >/dev/null
+  invalid_fixture="$(jq '.rules += [{type: "required_signatures"}]' <<<"$homelab_live_fixture")"
+  if jq -e --arg source live --arg phase after --arg expect desired \
+    -f "$homelab_policy_file" <<<"$invalid_fixture" >/dev/null 2>&1; then
+    echo "homelab required-signatures fixture unexpectedly passed" >&2
+    exit 1
+  fi
   for invalid_value in false missing; do
     if [[ "$invalid_value" == false ]]; then
       invalid_fixture="$(jq '(.rules[] | select(.type == "pull_request") | .parameters.require_extra_approval_for_unattributed_changes) = false' <<<"$homelab_live_fixture")"
