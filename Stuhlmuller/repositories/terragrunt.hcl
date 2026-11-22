@@ -153,6 +153,16 @@ inputs = {
             protected_branches     = false
             custom_branch_policies = true
           }
+        },
+        {
+          name                = "octelium-rscstore-backup"
+          deployment_branch   = "main"
+          can_admins_bypass   = false
+          prevent_self_review = false
+          deployment_branch_policy = {
+            protected_branches     = false
+            custom_branch_policies = true
+          }
         }
       ]
       ruleset = [

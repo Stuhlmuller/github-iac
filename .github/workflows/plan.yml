@@ -38,6 +38,7 @@ jobs:
           bash -n Stuhlmuller/repositories/reconcile-public-rulesets.sh
           bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --self-test
           bash Stuhlmuller/repositories/homelab-plan-reviewer-policy-test.sh
+          bash Stuhlmuller/repositories/octelium-backup-environment-policy-test.sh
           bash Stuhlmuller/security-configurations/reconcile-public-control-plane.sh --self-test
           bash Stuhlmuller/security-configurations/reconcile-homelab-native-receipt-event-policy.sh --self-test
           bash Stuhlmuller/security-configurations/reconcile-homelab-codex-review-ruleset.sh --self-test

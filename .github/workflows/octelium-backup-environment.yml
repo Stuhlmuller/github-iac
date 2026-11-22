@@ -1,0 +1,168 @@
+name: Provision Octelium Backup Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact commit SHA currently at main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-iac-deploy
+  cancel-in-progress: false
+
+env:
+  EXPECTED_SHA: ${{ inputs.expected_sha }}
+  PLAN_BUCKET: rstuhlmuller-aws-s3-use1-datalake
+  WORKING_DIR: Stuhlmuller/repositories
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Check Terragrunt HCL
+        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
+        with:
+          tg_dir: Stuhlmuller
+          tg_command: 'hcl fmt --check --diff'
+
+  plan:
+    runs-on: ubuntu-latest
+    needs: checks
+    environment: github-iac-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      changed: ${{ steps.reconcile.outputs.changed }}
+      plan_key: ${{ steps.reconcile.outputs.plan_key }}
+      plan_sha256: ${{ steps.reconcile.outputs.plan_sha256 }}
+      plan_version_id: ${{ steps.reconcile.outputs.plan_version_id }}
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Install pinned tools
+        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
+          role-session-name: github-iac-plan
+
+      - name: Create read-only GitHub App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homelab
+          permission-administration: read
+
+      - name: Save exact backup environment plan
+        id: reconcile
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TG_NON_INTERACTIVE: true
+          TF_IN_AUTOMATION: 1
+        run: bash octelium-backup-environment.sh plan
+
+  apply:
+    if: needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    needs: plan
+    environment: github-iac-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PLAN_KEY: ${{ needs.plan.outputs.plan_key }}
+      PLAN_SHA256: ${{ needs.plan.outputs.plan_sha256 }}
+      PLAN_VERSION_ID: ${{ needs.plan.outputs.plan_version_id }}
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.expected_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact current main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch --no-tags --depth=1 origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+
+      - name: Install pinned tools
+        uses: gruntwork-io/terragrunt-action@4ed5b7344c80315e5357f28f36159fc980bc2d5a # v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::716182248480:role/Github-TF-State
+          role-session-name: github-iac-apply
+
+      - name: Create scoped GitHub App token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homelab
+          permission-administration: write
+
+      - name: Apply and verify exact backup environment plan
+        shell: bash
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TG_NON_INTERACTIVE: true
+          TF_IN_AUTOMATION: 1
+        run: bash octelium-backup-environment.sh apply
