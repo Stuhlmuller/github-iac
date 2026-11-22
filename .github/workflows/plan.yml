@@ -201,6 +201,7 @@ jobs:
               "terragrunt-catalog.main": {"ruleset_id": 7928987},
               "workflows.main": {"ruleset_id": 14702865}
             }
+            and .inputs.repositories["homelab"].ruleset[0].required_status_checks[0].strict_required_status_checks_policy == false
             and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
             and .inputs.repositories["homelab"].environments[0].reviewers == null
             and .inputs.repositories["homelab"].environments[1].reviewers == null

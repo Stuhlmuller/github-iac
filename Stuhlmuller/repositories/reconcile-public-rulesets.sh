@@ -142,7 +142,7 @@ if [[ "$mode" == "--self-test" ]]; then
             target: $expected.target,
             enforcement: $expected.enforcement,
             conditions: $expected.conditions,
-            bypass_actors: [],
+            bypass_actors: $expected.bypass_actors,
             rules: [
               $expected.rule_types[] as $type
               | if $type == "pull_request" then {
@@ -169,6 +169,18 @@ if [[ "$mode" == "--self-test" ]]; then
     --arg phase after \
     --arg expect desired \
     -f "$homelab_policy_file" <<<"$homelab_live_fixture" >/dev/null
+  invalid_fixture="$(jq '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = true' <<<"$homelab_live_fixture")"
+  if jq -e --arg source live --arg phase after --arg expect desired \
+    -f "$homelab_policy_file" <<<"$invalid_fixture" >/dev/null 2>&1; then
+    echo "homelab strict freshness fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  if jq '.bypass_actors[0].actor_id = 1' <<<"$homelab_live_fixture" |
+    jq -e --arg source live --arg phase before --arg expect before-apply \
+      -f "$homelab_policy_file" >/dev/null 2>&1; then
+    echo "wrong live homelab bypass actor unexpectedly passed" >&2
+    exit 1
+  fi
   invalid_fixture="$(jq '.rules += [{type: "required_signatures"}]' <<<"$homelab_live_fixture")"
   if jq -e --arg source live --arg phase after --arg expect desired \
     -f "$homelab_policy_file" <<<"$invalid_fixture" >/dev/null 2>&1; then
@@ -405,7 +417,7 @@ for entry in "${rulesets[@]}"; do
     and .source_type == "Repository"
     and .source == "Stuhlmuller/\($repository)"
     and .conditions == {ref_name: {exclude: [], include: ["~DEFAULT_BRANCH"]}}
-    and .bypass_actors == []
+    and ($repository == "homelab" or .bypass_actors == [])
   ' <<<"$live" >/dev/null
 
   if [[ "$repository" == "homelab" ]]; then
@@ -416,4 +428,4 @@ for entry in "${rulesets[@]}"; do
   fi
 done
 
-echo "all 11 public repository rulesets match the declared no-bypass policy"
+echo "all 11 public repository rulesets match the declared bypass policy"

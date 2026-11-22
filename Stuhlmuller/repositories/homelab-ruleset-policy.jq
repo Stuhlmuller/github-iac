@@ -20,7 +20,7 @@ def expected:
     condition_keys: ["ref_name"],
     ref_name_count: 1,
     conditions: {ref_name: {exclude: [], include: ["~DEFAULT_BRANCH"]}},
-    bypass_actors: [],
+    bypass_actors: [{actor_id: 5015161, actor_type: "Integration", bypass_mode: "pull_request"}],
     rule_block_count: 1,
     rule_types: [
       "creation",
@@ -42,7 +42,7 @@ def expected:
       required_approving_review_count: 0
     },
     required_status_checks: {
-      strict_required_status_checks_policy: true,
+      strict_required_status_checks_policy: false,
       do_not_enforce_on_create: false,
       checks: expected_checks
     }
@@ -50,9 +50,10 @@ def expected:
 
 def normalize_bypass:
   map({
+    actor_id,
     actor_type,
     bypass_mode
-  }) | sort_by(.actor_type, .bypass_mode);
+  }) | sort_by(.actor_type, .actor_id, .bypass_mode);
 
 def field_or_null($key):
   if has($key) then .[$key] else null end;
@@ -218,4 +219,11 @@ elif $source == "self-test" then
 else
   error("source must be plan, live, or self-test")
 end
-| if $expect == "desired" then require_desired else . end
+| if $expect == "desired" then require_desired
+  elif $expect == "before-apply" then
+    if .bypass_actors == expected.bypass_actors then .
+    else error("live bypass actors differ from the reviewed configuration") end
+  else . end
+# The read-only deployment token cannot see bypass actors. Verify them with
+# the write-scoped token before apply and include them in the after hash.
+| if $phase == "before" then del(.bypass_actors) else . end
