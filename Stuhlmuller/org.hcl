@@ -34,7 +34,13 @@ locals {
         ]
       }
     ]
-    bypass_actors = []
+    bypass_actors = [
+      {
+        actor_id    = 5015161 # n8n - rstuhlmuller
+        actor_type  = "Integration"
+        bypass_mode = "pull_request"
+      }
+    ]
   }
   organization_rulesets = [
     {
