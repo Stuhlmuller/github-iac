@@ -284,7 +284,7 @@ jobs:
           test "$(sha256sum plan-after.json | awk '{print $1}')" = "$PLAN_AFTER_SHA256"
 
           gh api repos/Stuhlmuller/homelab/rulesets/14700233 > live-before.json
-          jq -e -S -c --arg source live --arg phase before --arg expect any \
+          jq -e -S -c --arg source live --arg phase before --arg expect before-apply \
             -f "$policy_file" live-before.json > live-before-normalized.json
           test "$(sha256sum live-before-normalized.json | awk '{print $1}')" = "$PLAN_BEFORE_SHA256"
           terragrunt apply "$PLAN_FILE"

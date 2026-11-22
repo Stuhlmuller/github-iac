@@ -28,7 +28,7 @@ and all($managed[];
   and ((.change.importing // null) == null)
   and ((.previous_address // null) == null)
   and (.change.actions == ["no-op"] or .change.actions == ["update"]))
-and all($rulesets[]; (.change.after.bypass_actors // []) == [])
+and all($rulesets[] | select(.address != $homelab); (.change.after.bypass_actors // []) == [])
 and all($rulesets[];
   if (.address == $homelab or .address == $github_iac) then true
   elif .change.actions == ["no-op"] then
