@@ -102,6 +102,21 @@ update. Do not roll this policy back by deletion:
 that can block the required workflow. Make a reviewed source change and
 dispatch the reconciler instead.
 
+## Homelab Codex review ruleset
+
+A separate, repository-owned ruleset requires the `Codex Code Review` status
+from GitHub Actions on pull requests to homelab's `main`. The separate ruleset
+has an empty bypass list, so the existing n8n bypass on the main ruleset cannot
+skip review. Homelab publishes the status after validating the Codex GitHub
+App's code review for the current PR head.
+
+After verifying the homelab publisher, dispatch the protected
+`reconcile-homelab-codex-review-ruleset.yml` workflow at the exact current
+`github-iac/main` SHA using its `expected_sha` input. It reads the ruleset back
+after applying. To roll back, set the source ruleset enforcement to
+`disabled`, merge the change, and dispatch again before retiring the status
+publisher.
+
 ## Protected deployment
 
 The `Terragrunt Deploy` workflow accepts only the exact 40-character commit SHA currently at `main`.
