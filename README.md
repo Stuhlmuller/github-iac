@@ -174,7 +174,7 @@ gh workflow run deploy.yml --repo Stuhlmuller/github-iac --ref main \
 
 The workflow targets only the isolated homelab ruleset. It hashes canonical
 before and after policy state, binds the before hash to GitHub immediately
-before apply, and requires the after hash to contain exactly seven checks,
+before apply, and requires the after hash to contain exactly six checks,
 the pull-request and history protections, exact branch conditions, and the
 existing n8n bypass actor. Homelab PR branches can merge while behind `main`
 when the required checks pass. The
