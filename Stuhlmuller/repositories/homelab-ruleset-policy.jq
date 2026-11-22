@@ -5,7 +5,6 @@ def expected_checks:
     {context: "repo", integration_id: 15368},
     {context: "Analyze (python)", integration_id: 15368},
     {context: "analyze-actions", integration_id: 15368},
-    {context: "release-dry-run", integration_id: 15368},
     {context: "Terragrunt Gate", integration_id: 15368}
   ] | sort_by(.context, .integration_id);
 

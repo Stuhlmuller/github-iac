@@ -215,10 +215,6 @@ inputs = {
                   integration_id = 15368
                 },
                 {
-                  context        = "release-dry-run"
-                  integration_id = 15368
-                },
-                {
                   context        = "Terragrunt Gate"
                   integration_id = 15368
                 }
