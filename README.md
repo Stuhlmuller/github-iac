@@ -189,7 +189,7 @@ Required GitHub configuration:
 - The App is installed only on `homelab`, grants repository Administration
   write, and grants no organization or other repository permission. The
   workflow also scopes every generated token to `homelab`.
-- Reviewer `rstuhlmuller` on both environments. Administrator bypass is disabled and deployments are restricted to protected branches.
+- Reviewer `rstuhlmuller` on both environments. Administrator bypass is disabled and only the `main` branch can deploy.
 
 Before dispatching the protected workflow, restrict the App installation and
 permissions, then rotate its private key into both protected environments:
@@ -219,9 +219,7 @@ test "$(gh secret list --repo Stuhlmuller/github-iac \
 After this change reaches `main`, adopt the bootstrapped environments into the
 declared remote state with administrator AWS and GitHub credentials. Import
 only an address that is absent, then review and apply the exact environment-only
-plan. The default scope is homelab only. During initial bootstrap, add
-`github-iac:github-iac-plan` and `github-iac:github-iac-production` to
-`environment_targets` to adopt those environments with their declared protection:
+plan. This adoption example is scoped to the original Homelab environments.
 
 ```bash
 set -euo pipefail
@@ -359,8 +357,8 @@ gh api repos/Stuhlmuller/homelab/environments/homelab-production/deployment-bran
 Homelab PR plans start automatically for same-repository branches after the
 workflow trust check. Production jobs remain automatic and accept only `main`,
 excluding tags. The separate
-`github-iac` environments retain reviewer `rstuhlmuller`, protected-branch
-restrictions, and disabled administrator bypass. The ruleset-only deployment
+`github-iac` environments retain reviewer `rstuhlmuller` and disabled
+administrator bypass. Their deployment allowlists specify `main`. The ruleset-only deployment
 workflow does not reconcile environments. After this change reaches `main`,
 dispatch `.github/workflows/homelab-plan-reviewer.yml` on `main` with
 `expected_sha` set to its exact current commit. It imports only a missing
@@ -371,6 +369,26 @@ homelab plan reviewer in HCL and applies a reviewed saved plan; keep the `main`
 allowlist.
 
 Do not dispatch while either environment is absent or while the repository secret remains; GitHub would otherwise auto-create an unprotected environment or expose the fallback repository secret.
+
+### Pipeline environment policies
+
+Apply the repository environment and deployment-policy resources before enabling
+jobs that reference a new environment. GitHub otherwise creates a missing
+environment with no deployment restrictions.
+
+| Repository | Environment | Allowed branch |
+| --- | --- | --- |
+| `github-iac` | `github-iac-plan`, `github-iac-production`, `release` | `main` |
+| `homelab` | `homelab-production`, `octelium-rscstore-backup`, `homelab-cordium-ci`, `release` | `main` |
+| `homelab` | `homelab-cordium-denial` | `codex/cordium-oidc-denial` |
+| `renovate` | `renovate-production` | `main` |
+
+Use the environment resource and matching branch-policy resource as the plan
+targets for each affected environment. Import an existing environment only if
+its address is missing from state. The `homelab-plan` environment continues to
+accept PR refs. For the restricted environments, verify the policy reported by
+`gh api repos/Stuhlmuller/<repo>/environments/<env>/deployment-branch-policies`
+contains exactly the branch in the table and no tag rules.
 
 Do not run an untargeted organization-wide apply to deliver a homelab ruleset change.
 

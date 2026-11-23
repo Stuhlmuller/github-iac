@@ -36,7 +36,6 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_SHA" = "$EXPECTED_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           git fetch --no-tags --depth=1 origin main

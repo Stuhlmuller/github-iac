@@ -1,6 +1,15 @@
 locals {
   org_vars                   = read_terragrunt_config(find_in_parent_folders("org.hcl")).locals
   public_repository_rulesets = jsondecode(file("${get_terragrunt_dir()}/public-rulesets.json"))
+  main_only_environment = {
+    deployment_branch   = "main"
+    can_admins_bypass   = false
+    prevent_self_review = false
+    deployment_branch_policy = {
+      protected_branches     = false
+      custom_branch_policies = true
+    }
+  }
   public_repository_config = {
     visibility                = "public"
     delete_branch_on_merge    = true
@@ -104,67 +113,33 @@ inputs = {
           ]
         }
       ]
-      environments = [
-        {
-          name                = "github-iac-plan"
-          can_admins_bypass   = false
-          prevent_self_review = false
-          reviewers = {
-            users = [57728706]
-            teams = []
-          }
-          deployment_branch_policy = {
-            protected_branches     = true
-            custom_branch_policies = false
-          }
-        },
-        {
-          name                = "github-iac-production"
-          can_admins_bypass   = false
-          prevent_self_review = false
-          reviewers = {
-            users = [57728706]
-            teams = []
-          }
-          deployment_branch_policy = {
-            protected_branches     = true
-            custom_branch_policies = false
-          }
-        }
-      ]
+      environments = concat(
+        [for name in ["github-iac-plan", "github-iac-production"] : merge(local.main_only_environment, {
+          name      = name
+          reviewers = { users = [57728706], teams = [] }
+        })],
+        [merge(local.main_only_environment, { name = "release" })],
+      )
     }
     "grafana-iac" = {
       visibility = "public"
     }
     "homelab" = {
       visibility = "public"
-      environments = [
+      environments = concat([
         {
           name                = "homelab-plan"
           can_admins_bypass   = false
           prevent_self_review = false
         },
-        {
-          name                = "homelab-production"
-          deployment_branch   = "main"
-          can_admins_bypass   = false
-          prevent_self_review = false
-          deployment_branch_policy = {
-            protected_branches     = false
-            custom_branch_policies = true
-          }
-        },
-        {
-          name                = "octelium-rscstore-backup"
-          deployment_branch   = "main"
-          can_admins_bypass   = false
-          prevent_self_review = false
-          deployment_branch_policy = {
-            protected_branches     = false
-            custom_branch_policies = true
-          }
-        }
-      ]
+        merge(local.main_only_environment, {
+          name              = "homelab-cordium-denial"
+          deployment_branch = "codex/cordium-oidc-denial"
+        }),
+        ], [
+        for name in ["homelab-production", "octelium-rscstore-backup", "homelab-cordium-ci", "release"] :
+        merge(local.main_only_environment, { name = name })
+      ])
       ruleset = [
         {
           name                       = "main"
