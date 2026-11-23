@@ -238,6 +238,18 @@ inputs = {
     }
     "renovate" = {
       visibility = "public"
+      environments = [
+        {
+          name                = "renovate-production"
+          deployment_branch   = "main"
+          can_admins_bypass   = false
+          prevent_self_review = false
+          deployment_branch_policy = {
+            protected_branches     = false
+            custom_branch_policies = true
+          }
+        }
+      ]
     }
     "terragrunt-catalog" = {
       visibility = "public"
