@@ -1,3 +1,5 @@
+def n8n_bypass: [{actor_id: 5015161, actor_type: "Integration", bypass_mode: "pull_request"}];
+
 [
   "github_repository_ruleset.existing[\".github.main\"]",
   "github_repository_ruleset.existing[\"ai-pr-reviewer.main\"]",
@@ -28,16 +30,17 @@ and all($managed[];
   and ((.change.importing // null) == null)
   and ((.previous_address // null) == null)
   and (.change.actions == ["no-op"] or .change.actions == ["update"]))
-and all($rulesets[] | select(.address != $homelab); (.change.after.bypass_actors // []) == [])
+and all($rulesets[]; .change.after.bypass_actors == n8n_bypass)
 and all($rulesets[];
-  if (.address == $homelab or .address == $github_iac) then true
-  elif .change.actions == ["no-op"] then
+  if .change.actions == ["no-op"] then
     .change.before == .change.after
-    and (.change.after.bypass_actors // []) == []
   else
-    (.change.before.bypass_actors | length) == 1
-    and .change.before.bypass_actors[0].actor_id == 2145192
-    and .change.before.bypass_actors[0].actor_type == "Integration"
-    and .change.before.bypass_actors[0].bypass_mode == "pull_request"
-    and ((.change.before | del(.bypass_actors)) == (.change.after | del(.bypass_actors)))
+    ((.change.before.bypass_actors // []) as $before
+      | $before == []
+      or $before == n8n_bypass
+      or $before == [{actor_id: 2145192, actor_type: "Integration", bypass_mode: "pull_request"}]
+      or (.change.before.repository == "personal-website"
+        and $before == (n8n_bypass | .[0].bypass_mode = "always")))
+    and (.address == $homelab or .address == $github_iac
+      or (.change.before | del(.bypass_actors)) == (.change.after | del(.bypass_actors)))
   end)

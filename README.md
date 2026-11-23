@@ -105,10 +105,9 @@ dispatch the reconciler instead.
 ## Homelab Codex review ruleset
 
 A separate, repository-owned ruleset requires the `Codex Code Review` status
-from GitHub Actions on pull requests to homelab's `main`. The separate ruleset
-has an empty bypass list, so the existing n8n bypass on the main ruleset cannot
-skip review. Homelab publishes the status after validating the Codex GitHub
-App's code review for the current PR head.
+from GitHub Actions on pull requests to homelab's `main`. Homelab publishes
+the status after validating the Codex GitHub App's code review for the current
+PR head. The n8n App can bypass this ruleset through a pull request.
 
 After verifying the homelab publisher, dispatch the protected
 `reconcile-homelab-codex-review-ruleset.yml` workflow at the exact current
@@ -136,8 +135,9 @@ bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --apply
 bash Stuhlmuller/repositories/migrate-public-ruleset-state.sh --check
 ```
 
-After the migration, run the repository-owned all-public-ruleset reconciler
-once with administrator AWS credentials and an administrator GitHub token:
+Run the repository-owned all-public-ruleset reconciler after the migration
+and to roll out changes to the shared branch bypass policy. Use administrator
+AWS credentials and an administrator GitHub token:
 
 ```bash
 GITHUB_TOKEN="$(gh auth token)" \
@@ -146,12 +146,12 @@ GITHUB_TOKEN="$(gh auth token)" \
   bash Stuhlmuller/repositories/reconcile-public-rulesets.sh --check
 ```
 
-The script plans only the 11 declared public-repository rulesets. It rejects
-imports, state moves, destructive actions, unrelated drift, or any change
-outside removal of the existing integration bypass plus the exact `homelab`
-and `github-iac` hardening policies. It applies the verified saved plan and
-checks every live ruleset ID afterward. Future `homelab` ruleset changes use
-the protected workflow below.
+The script plans only the 11 declared public-repository branch rulesets. It
+allows the n8n App to bypass each ruleset through a pull request and validates
+the exact `homelab` and `github-iac` policies. It rejects imports, state moves,
+destructive actions, and unrelated drift. It applies the verified saved plan
+and checks every live ruleset ID afterward. Changes limited to the `homelab`
+main ruleset use the protected workflow below.
 
 Live verification also requires [GitHub's default additional approval for
 unattributed Copilot pull requests](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#additional-approval-for-unattributed-copilot-pull-requests).

@@ -21,7 +21,8 @@ case "${1:---check}" in
     matches < "$desired_file"
     for mutation in '.enforcement = "disabled"' \
       '.rules[0].parameters.required_status_checks[0].integration_id = 42' \
-      '.bypass_actors = [{actor_id: 5015161, actor_type: "Integration", bypass_mode: "pull_request"}]'; do
+      '.bypass_actors = []' \
+      '.bypass_actors[0].bypass_mode = "always"'; do
       if jq "$mutation" "$desired_file" | matches; then
         echo "Unexpected ruleset accepted: $mutation" >&2
         exit 1

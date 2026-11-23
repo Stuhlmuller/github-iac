@@ -2,7 +2,13 @@
   "name": "Require Codex code review",
   "target": "branch",
   "enforcement": "active",
-  "bypass_actors": [],
+  "bypass_actors": [
+    {
+      "actor_id": 5015161,
+      "actor_type": "Integration",
+      "bypass_mode": "pull_request"
+    }
+  ],
   "conditions": {
     "ref_name": {
       "include": ["refs/heads/main"],

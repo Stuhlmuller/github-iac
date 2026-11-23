@@ -49,7 +49,8 @@ plan_policy_file="$script_dir/public-ruleset-plan-policy.jq"
 
 if [[ "$mode" == "--self-test" ]]; then
   plan_fixture="$(jq -cn --argjson metadata "$rulesets_json" '
-    {
+    [{actor_id: 5015161, actor_type: "Integration", bypass_mode: "pull_request"}] as $bypass
+    | {
       resource_changes: [
         $metadata[]
         | (.ruleset_id | tostring) as $id
@@ -59,8 +60,8 @@ if [[ "$mode" == "--self-test" ]]; then
             type: "github_repository_ruleset",
             change: {
               actions: ["no-op"],
-              before: {repository, ruleset_id, id: $id, name: "main", target: "branch", enforcement: "active", bypass_actors: []},
-              after: {repository, ruleset_id, id: $id, name: "main", target: "branch", enforcement: "active", bypass_actors: []}
+              before: {repository, ruleset_id, id: $id, name: "main", target: "branch", enforcement: "active", bypass_actors: $bypass},
+              after: {repository, ruleset_id, id: $id, name: "main", target: "branch", enforcement: "active", bypass_actors: $bypass}
             }
           }
       ]
@@ -101,7 +102,27 @@ if [[ "$mode" == "--self-test" ]]; then
       --arg github_iac "$github_iac_address" \
       --argjson expected_metadata "$rulesets_json" \
       -f "$plan_policy_file" >/dev/null; then
-    echo "tampered bypass-removal fixture unexpectedly passed" >&2
+    echo "unrelated ruleset drift fixture unexpectedly passed" >&2
+    exit 1
+  fi
+  for mutation in \
+    '(.resource_changes[] | select(.change.before.repository == "personal-website") | .change) |=
+      (.actions = ["update"] | .before.bypass_actors[0].bypass_mode = "always")' \
+    '.resource_changes[0].change |= (.actions = ["update"] | .before.bypass_actors = [])'; do
+    jq "$mutation" <<<"$plan_fixture" |
+      jq -e \
+        --arg homelab "$homelab_address" \
+        --arg github_iac "$github_iac_address" \
+        --argjson expected_metadata "$rulesets_json" \
+        -f "$plan_policy_file" >/dev/null
+  done
+  if jq '.resource_changes[0].change.after.bypass_actors[0].bypass_mode = "always"' <<<"$update_fixture" |
+    jq -e \
+      --arg homelab "$homelab_address" \
+      --arg github_iac "$github_iac_address" \
+      --argjson expected_metadata "$rulesets_json" \
+      -f "$plan_policy_file" >/dev/null; then
+    echo "unrestricted bypass fixture unexpectedly passed" >&2
     exit 1
   fi
   if jq '.resource_changes[0].change.after.ruleset_id = -1' <<<"$plan_fixture" |
@@ -318,7 +339,6 @@ jq -e --arg address "$github_iac_address" '
   and $value.target == "branch"
   and $value.enforcement == "active"
   and $value.conditions == [{ref_name: [{exclude: [], include: ["~DEFAULT_BRANCH"]}]}]
-  and ($value.bypass_actors // []) == []
   and ($value.rules | length) == 1
   and $value.rules[0].creation == true
   and $value.rules[0].deletion == true
@@ -417,7 +437,7 @@ for entry in "${rulesets[@]}"; do
     and .source_type == "Repository"
     and .source == "Stuhlmuller/\($repository)"
     and .conditions == {ref_name: {exclude: [], include: ["~DEFAULT_BRANCH"]}}
-    and ($repository == "homelab" or .bypass_actors == [])
+    and .bypass_actors == [{actor_id: 5015161, actor_type: "Integration", bypass_mode: "pull_request"}]
   ' <<<"$live" >/dev/null
 
   if [[ "$repository" == "homelab" ]]; then

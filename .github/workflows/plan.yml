@@ -168,7 +168,9 @@ jobs:
           rendered_config="$(terragrunt --log-disable \
             --working-dir Stuhlmuller/repositories render --json)"
           jq -e '
-            .inputs.default_repository_ruleset_config.bypass_actors == []
+            .inputs.default_repository_ruleset_config.bypass_actors == [
+              {"actor_id": 5015161, "actor_type": "Integration", "bypass_mode": "pull_request"}
+            ]
             and .inputs.organization_rulesets == [
               {
                 "name": "public-release-tags",
@@ -218,7 +220,8 @@ jobs:
                   and .deployment_branch == (if .name == "homelab-cordium-denial"
                     then "codex/cordium-oidc-denial" else "main" end))))
             and (.inputs.repositories["github-iac"].ruleset | length) == 1
-            and .inputs.repositories["github-iac"].ruleset[0].bypass_actors == []
+            and .inputs.repositories["github-iac"].ruleset[0].bypass_actors == null
+            and .inputs.repositories["homelab"].ruleset[0].bypass_actors == null
             and .inputs.repositories["github-iac"].ruleset[0].non_fast_forward == true
             and .inputs.repositories["github-iac"].ruleset[0].require_signed_commits == true
             and .inputs.repositories["github-iac"].ruleset[0].required_status_checks[0].strict_required_status_checks_policy == true
