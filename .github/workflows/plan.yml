@@ -3,8 +3,6 @@ name: "Terragrunt Check"
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -204,14 +202,21 @@ jobs:
               "workflows.main": {"ruleset_id": 14702865}
             }
             and .inputs.repositories["homelab"].ruleset[0].required_status_checks[0].strict_required_status_checks_policy == false
-            and .inputs.repositories["homelab"].environments[0].deployment_branch_policy == null
-            and .inputs.repositories["homelab"].environments[0].reviewers == null
-            and .inputs.repositories["homelab"].environments[1].reviewers == null
-            and .inputs.repositories["homelab"].environments[1].deployment_branch == "main"
-            and .inputs.repositories["homelab"].environments[1].deployment_branch_policy == {
-              "protected_branches": false,
-              "custom_branch_policies": true
-            }
+            and (.inputs.repositories as $repos
+              | ($repos.homelab.environments[] | select(.name == "homelab-plan")) as $plan
+              | $plan.deployment_branch_policy == null and $plan.reviewers == null
+              and all($repos.homelab.environments[]; .reviewers == null)
+              and all($repos["github-iac"].environments[] | select(.name != "release");
+                .reviewers == {users: [57728706], teams: []})
+              and all($repos.homelab.environments[], $repos["github-iac"].environments[];
+                .name == "homelab-plan"
+                or (.can_admins_bypass == false
+                  and .deployment_branch_policy == {
+                    protected_branches: false,
+                    custom_branch_policies: true
+                  }
+                  and .deployment_branch == (if .name == "homelab-cordium-denial"
+                    then "codex/cordium-oidc-denial" else "main" end))))
             and (.inputs.repositories["github-iac"].ruleset | length) == 1
             and .inputs.repositories["github-iac"].ruleset[0].bypass_actors == []
             and .inputs.repositories["github-iac"].ruleset[0].non_fast_forward == true

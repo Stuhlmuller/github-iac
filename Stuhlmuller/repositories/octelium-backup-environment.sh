@@ -11,7 +11,6 @@ plan_file="$RUNNER_TEMP/octelium-backup-environment.tfplan"
 verify_main() {
   [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
   test "$GITHUB_REPOSITORY" = Stuhlmuller/github-iac
-  test "$GITHUB_REF" = refs/heads/main
   test "$GITHUB_SHA" = "$EXPECTED_SHA"
   test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
   git fetch --no-tags --depth=1 origin main

@@ -5,11 +5,7 @@ permissions: read-all
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
-    branches:
-      - main
   push:
-    branches:
-      - main
 
 jobs:
   release:
@@ -35,6 +31,7 @@ jobs:
   publish:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write # for creating releases
     steps:
